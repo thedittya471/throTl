@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseHealthResponse } from './index.ts';
+import { parseHealthResponse } from '../src/index.ts';
 
 test('health contract accepts the supported version and service', () => {
   const health = { version: 1, status: 'ok', service: 'ratelab-api' };

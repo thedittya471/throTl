@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { GET } from '../app/api/health/route.ts';
+import { GET } from '../../app/api/health/route.ts';
 
 const health = { version: 1, status: 'ok', service: 'ratelab-api' };
 

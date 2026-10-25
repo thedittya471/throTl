@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { test } from 'node:test';
-import { createApp, readConfig } from './server.ts';
+import { createApp, readConfig } from '../src/server.ts';
 
 test('configuration uses local defaults', () => {
   assert.deepEqual(readConfig({}), { host: '127.0.0.1', port: 3001 });
@@ -53,7 +53,7 @@ test('health endpoint returns JSON without exposing configuration', async (t) =>
 
 
 test('startup exits unsuccessfully for invalid configuration', () => {
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./index.ts', import.meta.url))], {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../src/index.ts', import.meta.url))], {
     env: { ...process.env, HOST: '127.0.0.1', PORT: 'invalid' },
     encoding: 'utf8',
     timeout: 5_000,
@@ -73,7 +73,7 @@ test('startup reports an occupied port and exits unsuccessfully', async (t) => {
   await once(occupied, 'listening');
   const address = occupied.address();
   assert.ok(address && typeof address !== 'string');
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./index.ts', import.meta.url))], {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../src/index.ts', import.meta.url))], {
     env: { ...process.env, HOST: '127.0.0.1', PORT: String(address.port) },
     encoding: 'utf8',
     timeout: 5_000,

@@ -60,6 +60,8 @@ Within a key, effective decision time never moves backwards: clamp raw time to t
 | Token bucket | Start full. Refill lazily by `elapsedSeconds * refillRate`, capped at capacity. Allow iff at least one token is available, then subtract one. Rejections may update refill bookkeeping but do not consume a token. |
 | Queued leaky bucket | Admit into a FIFO waiting queue if capacity permits; otherwise reject immediately. First service can start immediately if idle; subsequent service starts are separated by at least `1/drainRate` seconds. Service starts are paced, not HTTP completions. There is no accumulated idle burst credit. |
 
+For fixed-window rejection, `retryAfterMs = resetAtMs - rawTimeMs`, including any rollback gap; allowed requests return zero. This assumes the raw clock subsequently advances normally and does not reserve future allowance.
+
 Rejected requests carry a reason and relevant bounded state; allowed requests carry equivalent evidence. Shared decisions update check, mutation, and expiration atomically. TTL must not remove state while it could still affect a decision or pending queue work; early expiry is a correctness bug.
 
 Queue FIFO order is limiter admission order, not client send order. Shared mode requires one global capacity/order/service cadence across three instances. Application processing may overlap after service starts; the queue does not promise completion order. A 200 is returned only after queued work is served and the application succeeds, not at queue admission.

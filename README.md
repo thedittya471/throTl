@@ -30,6 +30,40 @@ Open [RateLab](http://127.0.0.1:3000). It checks the API on initial load. Use **
 
 Both dev commands build the shared contracts first. If you edit the contract package, restart the apps to rebuild it. This small workspace deliberately does not add an orchestration framework or another file watcher yet.
 
+## Folder structure
+
+Each workspace keeps application code and tests separate. Test folders follow the source area they verify; test filenames describe the module under test.
+
+```text
+apps/
+  api/
+    src/
+      index.ts                  # Process startup and shutdown
+      server.ts                 # Express app and configuration
+      limiters/
+        fixed-window.ts         # Fixed-window algorithm
+        types.ts                # Shared limiter interface
+    tests/
+      server.test.ts
+      limiters/
+        fixed-window.test.ts
+  web/
+    app/                        # Next.js pages, UI, and route handlers
+      api/health/route.ts
+      connection-status.tsx
+      globals.css
+      layout.tsx
+      page.tsx
+    tests/
+      api/health.test.ts
+packages/
+  contracts/
+    src/index.ts                # Shared API types and runtime validation
+    tests/index.test.ts
+```
+
+All workspace test commands discover `tests/**/*.test.ts`. Type checking covers source and tests; API and contracts production builds include only `src/`. Next.js uses `app/` for its application entry points.
+
 ## Connection behavior
 
 The browser requests `/api/health` on the Next.js origin. The Next.js handler requests the configured Express API, validates its response against `@ratelab/contracts`, and returns a safe result. There is no arbitrary user-selected destination or browser CORS configuration.
@@ -69,6 +103,22 @@ Blank/malformed API bind settings fail before listening. Occupied ports produce 
 
 Stop each process with Ctrl+C. The API closes HTTP connections on SIGINT/SIGTERM, with a ten-second shutdown deadline.
 
+## Fixed-window engine (Task 04)
+
+`apps/api/src/limiters/fixed-window.ts` exports `createFixedWindowLimiter({ limit, windowMs, now? })`. Each instance owns an in-memory map; `check(key)` synchronously returns admission, reason, remaining allowance, reset/retry milliseconds, and a detached explanation of the before/after counts and clock values. HTTP integration is Task 05.
+
+Windows are epoch-aligned and include their start but exclude their end. Rejections do not consume allowance. The last allowed request has zero remaining allowance. Clock rollback is clamped per key; rejected retry delays include the raw clock's rollback gap. Limits/durations must be positive safe integers; clock values must be non-negative safe integer milliseconds, and reset timestamps must remain safe integers.
+
+For a limit of two per second, requests at 998, 999, 1,000, and 1,001 ms all pass because they span two windows. This boundary burst is expected fixed-window behavior.
+
+Keys remain until their limiter instance is released. Use one instance per experiment and bounded, validated keys when integrating it; it does not provide Redis sharing, arbitrary public-key admission, or background eviction.
+
+Focused deterministic tests (no network or sleeps):
+
+```sh
+npm exec --workspace @ratelab/api -- node --test tests/limiters/fixed-window.test.ts
+```
+
 ## Verification and production build
 
 ```sh
@@ -83,7 +133,7 @@ Tests use Node's built-in runner, with real loopback HTTP for the API and contro
 Focused checks:
 
 ```sh
-npm exec --workspace @ratelab/api -- node --test --test-name-pattern=^configuration src/server.test.ts
+npm exec --workspace @ratelab/api -- node --test --test-name-pattern=^configuration tests/server.test.ts
 npm run test --workspace @ratelab/contracts
 npm run test --workspace @ratelab/web
 ```
