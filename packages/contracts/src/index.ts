@@ -39,3 +39,6 @@ export type FixedWindowDemoResponse = {
     state: FixedWindowState;
   };
 };
+
+export { DEFAULT_RUN_CONFIG, parseRunConfig, parseRunSnapshot } from './runs.ts';
+export type { RunConfig, RunCounts, RunSnapshot } from './runs.ts';

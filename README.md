@@ -1,6 +1,6 @@
 # RateLab
 
-A rate-limiting learning lab in progress. The Next.js workspace currently connects to the Express health endpoint. A fixed-window demo endpoint is available; simulation controls are later tasks.
+A rate-limiting learning lab in progress. The Next.js workspace connects to Express and runs bounded fixed-window experiments using real HTTP traffic.
 
 ## Setup
 
@@ -40,28 +40,37 @@ apps/
     src/
       index.ts                  # Process startup and shutdown
       server.ts                 # Express app and configuration
-      demo.ts                   # Fixed-window HTTP endpoint
+      demo.ts                   # Fixed-window HTTP responses
+      runs.ts                   # Run lifecycle and private target routing
+      traffic.ts                # Bounded steady HTTP generator
       limiters/
         fixed-window.ts         # Fixed-window algorithm
         types.ts                # Shared limiter interface
     tests/
       server.test.ts
       demo.test.ts
+      runs.test.ts
+      traffic.test.ts
       limiters/
         fixed-window.test.ts
   web/
     app/                        # Next.js pages, UI, and route handlers
       api/health/route.ts
+      api/runs/route.ts
+      run-simulator.tsx
       connection-status.tsx
       globals.css
       layout.tsx
       page.tsx
     tests/
       api/health.test.ts
+      api/runs.test.ts
 packages/
   contracts/
-    src/index.ts                # Shared API types and runtime validation
+    src/index.ts                # Shared API exports
+    src/runs.ts                 # Run configuration and snapshot validation
     tests/index.test.ts
+    tests/runs.test.ts
 ```
 
 All workspace test commands discover `tests/**/*.test.ts`. Type checking covers source and tests; API and contracts production builds include only `src/`. Next.js uses `app/` for its application entry points.
@@ -150,6 +159,54 @@ Focused HTTP integration tests use an injected clock to verify exhaustion and re
 
 ```sh
 npm exec --workspace @ratelab/api -- node --test tests/demo.test.ts
+```
+
+## Steady experiments (Task 06)
+
+Start the API and web app with the setup commands above. In **First experiment**, choose the request rate, duration, fixed-window limit, and window length, then select **Start steady run**. The defaults offer 10 requests/second for 10 seconds against a limit of 5 per 1,000 ms. This produces allowed and rejected requests, with actual counts affected by aligned boundaries and arrival timing. Settings stay fixed during a run. **Stop run** waits for generator cleanup before acknowledging the stop.
+
+This slice uses one synthetic client, one instance, local state, and a global key. Each run owns a fresh limiter; it does not share the standalone `/demo` allowance. The UI polls every 500 ms, shows final totals, and keeps its private control token only in memory. Leaving the component attempts a best-effort stop. Reload recovery and disconnect grace are not available yet; if a stop or start response is lost, remaining work is still bounded by duration and request deadlines. SSE follows in Task 07.
+
+| Setting / budget | Current ceiling |
+|---|---:|
+| Duration | 100–120,000 ms |
+| Offered steady rate | 1–1,000 requests/second |
+| Fixed-window limit | 1–1,000 requests/window |
+| Window duration | 1–60,000 ms |
+| Active runs / retained runs | 10 / 20 |
+| Aggregate active offered rate | 5,000 requests/second |
+| In-flight attempts per run / total | 256 / 2,048 |
+| Maximum dispatch lateness | 100 ms |
+| Total HTTP attempt deadline | 15 seconds |
+| Result retention | 10 minutes after settlement; expired records are pruned on requests |
+
+These are admission ceilings, not measured throughput guarantees. A full budget rejects new runs with 503. The generator uses monotonic scheduling and a keep-alive HTTP agent. Late or over-capacity slots are missed instead of creating a catch-up burst. Stop aborts pending timers/HTTP requests, marks undispatched slots missed, waits for every initiated request to settle, and destroys the agent. API shutdown uses the same cleanup.
+
+`scheduled` is the number of offered slots (`ceil(durationMs * ratePerSecond / 1000)`), including slots later missed. `responseReceived` means an entire HTTP response was consumed; it includes HTTP errors. Completed attempts include received responses, transport failures, cancellations, and timeouts. Allowed/rejected counts use confirmed target responses; lost responses leave an unknown decision even if the target already evaluated them. Missed slots are split into lateness, capacity, and cancellation.
+
+After settlement:
+
+```text
+scheduled = dispatched + missed
+completed attempts = dispatched = responseReceived + transportFailed + cancelled + timedOut
+dispatched = allowed + rejected + unknownDecision
+inFlight = 0
+```
+
+Control wire contract (all responses disable caching):
+
+- `POST /runs`: JSON `{ durationMs, ratePerSecond, limit, windowMs }`; returns 201 `{ run, token }`. `run.id` is an opaque display identifier; the separate bearer token controls access.
+- `GET /runs`: returns the current run snapshot for `Authorization: Bearer <token>`.
+- `DELETE /runs`: stops that run, awaits cleanup, and returns its final snapshot. Repeated stop is safe.
+- API control requests require `X-RateLab-Request: 1`; missing/invalid run credentials return 404. Queries, unknown fields, invalid settings, and oversized JSON are rejected.
+- The Next.js `/api/runs` bridge validates input/output, enforces same-origin mutations, and forwards to server-configured `API_ORIGIN`. Tokens stay in headers and the start response, never URLs.
+- `/runs/target` accepts a separate private generator credential that is never returned to the browser. It uses the same decision-response formatter as `/demo`. The target URL comes only from the API listener's actual socket address and port; incoming Host headers and user-supplied destinations are not used.
+
+Focused tests:
+
+```sh
+npm exec --workspace @ratelab/api -- node --test tests/runs.test.ts tests/traffic.test.ts
+npm exec --workspace @ratelab/web -- node --test tests/api/runs.test.ts
 ```
 
 ## Verification and production build

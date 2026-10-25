@@ -1,5 +1,5 @@
 import { CONTRACT_VERSION, type FixedWindowDemoResponse } from '@ratelab/contracts';
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { createFixedWindowLimiter } from './limiters/fixed-window.ts';
 
 export type DemoOptions = {
@@ -25,24 +25,28 @@ export function createDemoRouter({ limit = 100, windowMs = 60_000, now = Date.no
 
     // One server-owned key keeps this standalone demo's memory bounded.
     const decision = limiter.check('global');
-    response.set({
-      'X-RateLab-Algorithm': 'fixed-window',
-      'X-RateLab-Instance': 'local',
-      'X-RateLab-Decision': decision.allowed ? 'allowed' : 'rejected',
-      'X-RateLab-Limit': String(decision.state.limit),
-      'X-RateLab-Remaining': String(decision.remaining),
-      'X-RateLab-Reset-Ms': String(decision.resetAtMs),
-    });
-    if (!decision.allowed) {
-      response.set('Retry-After', String(Math.max(1, Math.ceil(decision.retryAfterMs / 1_000))));
-    }
-    response.status(decision.allowed ? 200 : 429).json({
-      version: CONTRACT_VERSION,
-      algorithm: 'fixed-window',
-      instance: 'local',
-      decision,
-    } satisfies FixedWindowDemoResponse);
+    sendFixedWindowDecision(response, decision);
   });
 
   return router;
+}
+
+export function sendFixedWindowDecision(response: Response, decision: FixedWindowDemoResponse['decision']) {
+  response.set({
+    'X-RateLab-Algorithm': 'fixed-window',
+    'X-RateLab-Instance': 'local',
+    'X-RateLab-Decision': decision.allowed ? 'allowed' : 'rejected',
+    'X-RateLab-Limit': String(decision.state.limit),
+    'X-RateLab-Remaining': String(decision.remaining),
+    'X-RateLab-Reset-Ms': String(decision.resetAtMs),
+  });
+  if (!decision.allowed) {
+    response.set('Retry-After', String(Math.max(1, Math.ceil(decision.retryAfterMs / 1_000))));
+  }
+  response.status(decision.allowed ? 200 : 429).json({
+    version: CONTRACT_VERSION,
+    algorithm: 'fixed-window',
+    instance: 'local',
+    decision,
+  } satisfies FixedWindowDemoResponse);
 }

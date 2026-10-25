@@ -3,7 +3,8 @@ import { createApp, readConfig } from './server.ts';
 
 try {
   const { host, port } = readConfig();
-  const server = createServer(createApp());
+  const app = createApp();
+  const server = createServer(app);
   server.once('error', (error: NodeJS.ErrnoException) => {
     console.error(`API failed to listen: ${error.code ?? 'UNKNOWN'}`);
     process.exitCode = 1;
@@ -12,10 +13,11 @@ try {
     console.info(`RateLab API listening on ${host}:${port}`);
   });
 
-  const shutdown = () => {
+  const shutdown = async () => {
     console.info('Stopping RateLab API');
-    server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();
+    await app.locals.stopRuns();
+    server.close(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

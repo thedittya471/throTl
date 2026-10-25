@@ -1,6 +1,6 @@
 # RateLab experiment specification
 
-Status: Task 01 specification draft, ready for user review. No simulator implementation exists yet.
+Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–06 implement the local fixed-window experiment described below.
 
 The interview requirements below are agreed. Rules labeled **Proposed** are concrete defaults prepared for review, not previously approved product decisions. After review, this document becomes the behavior contract for implementation and tests. Hosting selection and capacity promises remain deferred.
 
@@ -189,6 +189,16 @@ Ten slots: two missed; eight dispatched. At observation: responseReceived=5, tra
 ### G. Token refill and counter approximation
 
 Capacity=2, refill=1 token/second. Two requests at t=0 pass. At 500 ms, tokens=0.5 and a request fails; at 1,000 ms one token is available and a request passes. Separately, sliding counter with L=10, W=1,000 ms, previous=8, current=3 at x=500 ms estimates 7; a request passes and increments current to 4, making estimated usage 8. The exact log may disagree depending on the eight timestamps.
+
+## Implemented first experiment (Task 06)
+
+The initial run supports steady traffic, one client, one local instance, and a global fixed-window key. Each run gets fresh state and immutable validated settings. Defaults are 10 requests/second, 10,000 ms, and 5 admitted requests per 1,000 ms. Current input ceilings are 1,000 requests/second, 120,000 ms, 1,000 requests/window, and 60,000 ms/window; minimum duration is 100 ms. Full presets, Redis, comparison, clocks, and event recording remain later tasks.
+
+`POST /runs` returns `{ run, token }`; `run.id` is an opaque identifier, while a separate 256-bit bearer token authorizes `GET /runs` and `DELETE /runs`. Credentials are not placed in URLs. A separate server-only token authorizes `/runs/target`; that route returns the same decision-derived metadata as the standalone demo. The generator's only registered target is the current API listener, derived from socket address/port rather than request Host or configuration. Unknown config fields and query parameters are rejected. The Next.js bridge bounds input and requires same-origin mutations; API controls require a custom header and do not enable CORS.
+
+Runs move from running to draining to completed, or through stopping to stopped. Stop is idempotent and returns after all generator tasks settle. Process shutdown cancels runs before closing the listener. The generator uses monotonic time, keep-alive HTTP, at most 256 in-flight requests per run and 2,048 total, a 15-second total request deadline, and 100 ms lateness tolerance. Aggregate admission is capped at 10 active runs / 5,000 offered requests per second; 20 snapshots are retained for 10 minutes after settlement with lazy expiry. These budgets do not establish achieved throughput.
+
+Scheduled slots are `ceil(durationMs * ratePerSecond / 1000)` at offsets starting at zero and strictly before duration end. Missed slots record lateness, in-flight budget, or cancellation. UI completed attempts are `dispatched - inFlight`; final counter identities follow Section 4. Incomplete/failed transport outcomes are unknown decisions, not 429. The UI polls status and shows final totals; unmount attempts a best-effort stop. Reload recovery, disconnect grace, and guaranteed delivery of a start/stop response are not part of this slice; disconnected work remains duration/deadline bounded. Browser tests were explicitly excluded by the user for this task.
 
 ## 9. Task 01 completion and review
 

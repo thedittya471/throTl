@@ -1,6 +1,7 @@
 import { CONTRACT_VERSION, type HealthResponse } from '@ratelab/contracts';
 import { isIP } from 'node:net';
 import express from 'express';
+import { createRunRouter } from './runs.ts';
 import { createDemoRouter, type DemoOptions } from './demo.ts';
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env) {
@@ -26,5 +27,8 @@ export function createApp(demoOptions: DemoOptions = {}) {
     } satisfies HealthResponse);
   });
   app.use('/demo', createDemoRouter(demoOptions));
+  const runs = createRunRouter(demoOptions.now);
+  app.use('/runs', runs.router);
+  app.locals.stopRuns = runs.shutdown;
   return app;
 }
