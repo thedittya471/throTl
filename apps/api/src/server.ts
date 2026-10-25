@@ -1,6 +1,7 @@
 import { CONTRACT_VERSION, type HealthResponse } from '@ratelab/contracts';
 import { isIP } from 'node:net';
 import express from 'express';
+import { createDemoRouter, type DemoOptions } from './demo.ts';
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   const host = env.HOST ?? '127.0.0.1';
@@ -16,7 +17,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   return { host, port };
 }
 
-export function createApp() {
+export function createApp(demoOptions: DemoOptions = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.get('/health', (_request, response) => {
@@ -24,5 +25,6 @@ export function createApp() {
       version: CONTRACT_VERSION, status: 'ok', service: 'ratelab-api',
     } satisfies HealthResponse);
   });
+  app.use('/demo', createDemoRouter(demoOptions));
   return app;
 }

@@ -1,6 +1,6 @@
 # RateLab
 
-A rate-limiting learning lab in progress. The Next.js workspace currently connects to the Express health endpoint. The limiter engine and simulation controls are later tasks.
+A rate-limiting learning lab in progress. The Next.js workspace currently connects to the Express health endpoint. A fixed-window demo endpoint is available; simulation controls are later tasks.
 
 ## Setup
 
@@ -40,11 +40,13 @@ apps/
     src/
       index.ts                  # Process startup and shutdown
       server.ts                 # Express app and configuration
+      demo.ts                   # Fixed-window HTTP endpoint
       limiters/
         fixed-window.ts         # Fixed-window algorithm
         types.ts                # Shared limiter interface
     tests/
       server.test.ts
+      demo.test.ts
       limiters/
         fixed-window.test.ts
   web/
@@ -105,7 +107,7 @@ Stop each process with Ctrl+C. The API closes HTTP connections on SIGINT/SIGTERM
 
 ## Fixed-window engine (Task 04)
 
-`apps/api/src/limiters/fixed-window.ts` exports `createFixedWindowLimiter({ limit, windowMs, now? })`. Each instance owns an in-memory map; `check(key)` synchronously returns admission, reason, remaining allowance, reset/retry milliseconds, and a detached explanation of the before/after counts and clock values. HTTP integration is Task 05.
+`apps/api/src/limiters/fixed-window.ts` exports `createFixedWindowLimiter({ limit, windowMs, now? })`. Each instance owns an in-memory map; `check(key)` synchronously returns admission, reason, remaining allowance, reset/retry milliseconds, and a detached explanation of the before/after counts and clock values. The `/demo` HTTP endpoint exposes these decisions.
 
 Windows are epoch-aligned and include their start but exclude their end. Rejections do not consume allowance. The last allowed request has zero remaining allowance. Clock rollback is clamped per key; rejected retry delays include the raw clock's rollback gap. Limits/durations must be positive safe integers; clock values must be non-negative safe integer milliseconds, and reset timestamps must remain safe integers.
 
@@ -117,6 +119,37 @@ Focused deterministic tests (no network or sleeps):
 
 ```sh
 npm exec --workspace @ratelab/api -- node --test tests/limiters/fixed-window.test.ts
+```
+
+## Limited demo endpoint (Task 05)
+
+`GET /demo` exercises the fixed-window engine through real HTTP. The standalone demo uses one global key, a limit of 100 requests per 60,000 ms, and independent state per API app instance. Restarting the API resets this state. This is a local learning endpoint; isolated, authorized experiment runs are added with the coordinator, not provided by this standalone endpoint.
+
+```sh
+curl -i http://127.0.0.1:3001/demo
+```
+
+An allowed request returns 200; a limiter rejection returns 429. Both return `{ version: 1, algorithm: "fixed-window", instance: "local", decision }`. The shared `FixedWindowDemoResponse` contract describes the body. `decision` includes admission, reason, remaining allowance, reset/retry milliseconds, and the before/after counter and clock snapshot.
+
+| Header | Meaning |
+|---|---|
+| `X-RateLab-Algorithm` | `fixed-window` |
+| `X-RateLab-Instance` | `local`, the standalone demo label |
+| `X-RateLab-Decision` | `allowed` or `rejected` |
+| `X-RateLab-Limit` | Configured requests per window |
+| `X-RateLab-Remaining` | Integer allowance after this decision; zero is valid on a 200 |
+| `X-RateLab-Reset-Ms` | Absolute Unix timestamp in milliseconds at the next window boundary |
+| `Retry-After` | Only on 429: `max(1, ceil(decision.retryAfterMs / 1000))` seconds |
+| `Cache-Control` | `no-store` |
+
+These application-defined headers are educational metadata. Retry-After is an advisory delay, including a clock rollback gap when present; it does not reserve capacity. Response headers and the JSON explanation use the same engine decision.
+
+Query parameters are rejected with 400 and `DEMO_QUERY_NOT_SUPPORTED`, before consuming allowance. Callers cannot supply client identities, limiter keys, limits, or target URLs. Identity headers do not change the global key. Methods other than GET return 405 with `Allow: GET`, including HEAD so it cannot silently consume allowance. This route accepts no application payload and makes no outbound requests; registered-target selection belongs to the future traffic generator. Server-owned test configuration is validated by the existing limiter factory.
+
+Focused HTTP integration tests use an injected clock to verify exhaustion and recovery without sleeps:
+
+```sh
+npm exec --workspace @ratelab/api -- node --test tests/demo.test.ts
 ```
 
 ## Verification and production build

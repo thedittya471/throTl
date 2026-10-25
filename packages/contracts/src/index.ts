@@ -15,3 +15,27 @@ export function parseHealthResponse(input: unknown): HealthResponse {
   }
   return { version: CONTRACT_VERSION, status: 'ok', service: 'ratelab-api' };
 }
+
+export type FixedWindowState = {
+  limit: number;
+  windowStartMs: number;
+  countBefore: number;
+  countAfter: number;
+  rawTimeMs: number;
+  effectiveTimeMs: number;
+  clockClamped: boolean;
+};
+
+export type FixedWindowDemoResponse = {
+  version: typeof CONTRACT_VERSION;
+  algorithm: 'fixed-window';
+  instance: 'local';
+  decision: {
+    allowed: boolean;
+    reason: 'within_limit' | 'limit_exhausted';
+    remaining: number;
+    resetAtMs: number;
+    retryAfterMs: number;
+    state: FixedWindowState;
+  };
+};

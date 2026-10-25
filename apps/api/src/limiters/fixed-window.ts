@@ -1,3 +1,4 @@
+import type { FixedWindowState } from '@ratelab/contracts';
 import type { Limiter } from './types.ts';
 
 type FixedWindowOptions = {
@@ -10,16 +11,6 @@ type WindowCounter = {
   windowStartMs: number;
   count: number;
   lastEffectiveTimeMs: number;
-};
-
-type FixedWindowState = {
-  limit: number;
-  windowStartMs: number;
-  countBefore: number;
-  countAfter: number;
-  rawTimeMs: number;
-  effectiveTimeMs: number;
-  clockClamped: boolean;
 };
 
 export function createFixedWindowLimiter({
