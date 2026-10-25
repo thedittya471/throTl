@@ -99,13 +99,20 @@ export function createRunRouter(instances: InstanceOptions,
     });
     const cleanup = async () => {
       registry.remove(targetToken);
-      await Promise.allSettled(instances.peers.map(async (origin) => { const result = await peerRequest(origin, 'DELETE'); await result.body?.cancel(); }));
+      const removed = await Promise.allSettled(instances.peers.map(async (origin) => { const result = await peerRequest(origin, 'DELETE'); await result.body?.cancel(); return result.ok; }));
+      if (config.stateMode === 'shared' && removed.every((item) => item.status === 'fulfilled' && item.value)) {
+        await registry.cleanupShared(targetToken).catch(() => {}); // TTL covers unavailable cleanup.
+      }
     };
     try {
-      registry.register(targetToken, config);
+      await registry.register(targetToken, config);
       for (const origin of instances.peers) {
         const registered = await peerRequest(origin, 'POST');
-        if (!registered.ok) { await registered.body?.cancel(); throw new Error('TARGET_UNAVAILABLE'); }
+        if (!registered.ok) {
+          const redisUnavailable = registered.headers.get('X-RateLab-Error') === 'REDIS_UNAVAILABLE';
+          await registered.body?.cancel();
+          throw new Error(redisUnavailable ? 'REDIS_UNAVAILABLE' : 'TARGET_UNAVAILABLE');
+        }
         const identity = await registered.json();
         if (typeof identity.instanceId !== 'string' || !/^[a-zA-Z0-9_-]{1,32}$/.test(identity.instanceId) || routes.some((item) => item.id === identity.instanceId) || origin === target.origin) {
           throw new Error('INVALID_INSTANCE');
@@ -115,18 +122,23 @@ export function createRunRouter(instances: InstanceOptions,
       }
       snapshot.instances = routes.map(({ id, counts }) => ({ id, counts }));
       if (closing || controller.signal.aborted) throw new Error('RUN_STOPPED');
-    } catch {
+    } catch (error) {
       await cleanup(); events.close(); runs.delete(`Bearer ${token}`); settle();
-      response.status(503).json({ error: 'TARGET_UNAVAILABLE' }); return;
+      const code = error instanceof Error && error.message === 'REDIS_UNAVAILABLE' ? 'REDIS_UNAVAILABLE' : 'TARGET_UNAVAILABLE';
+      if (code === 'REDIS_UNAVAILABLE') response.set('X-RateLab-Error', code);
+      response.status(503).json({ error: code }); return;
     }
     void generateTraffic({ config, counts: snapshot.counts, target,
       token: targetToken.slice(7), signal: run.controller.signal, targets: routes,
       onDecision: (decision, instance) => telemetry.record(decision, instance),
+      onUnavailable: () => {
+        snapshot.error = 'REDIS_UNAVAILABLE'; snapshot.status = 'stopping'; controller.abort();
+      },
       canDispatch: () => [...runs.values()].reduce((total, item) => total + item.snapshot.counts.inFlight, 0) < 2_048,
       onDraining() { if (snapshot.status === 'running') snapshot.status = 'draining'; },
     }).then(async () => {
       await cleanup();
-      snapshot.status = run.controller.signal.aborted ? 'stopped' : 'completed';
+      snapshot.status = snapshot.error ? 'failed' : run.controller.signal.aborted ? 'stopped' : 'completed';
       run.expiresAt = Date.now() + 10 * 60_000;
       events.finish();
     }).catch(async () => {

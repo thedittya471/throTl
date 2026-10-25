@@ -16,8 +16,10 @@ export function ExperimentView({ run }: { run: RunSnapshot }) {
   return (
     <section className="experiment-view" aria-labelledby={`${chartId}-heading`}>
       {run.instances && <section aria-label="Per-instance routing">
-        <h3>Round-robin routing · independent local state</h3>
-        <p>Each instance has its own allowance of {run.config.limit} per {run.config.windowMs} ms for one global key. {run.instances.length} instance(s) can admit up to {run.instances.length * run.config.limit} in one window.</p>
+        <h3>Round-robin routing · {run.config.stateMode === 'shared' ? 'shared Redis state' : 'independent local state'}</h3>
+        <p>{run.config.stateMode === 'shared'
+          ? `All instances share ${run.config.limit} allowed requests per ${run.config.windowMs} ms for one global key. Redis supplies the clock and atomic counter.`
+          : `Each instance has its own allowance of ${run.config.limit} per ${run.config.windowMs} ms for one global key. ${run.instances.length} instance(s) can admit up to ${run.instances.length * run.config.limit} in one window.`}</p>
         <div className="table-scroll"><table>
           <caption>Real HTTP outcomes by target process. Failed targets stay in rotation; requests are not retried.</caption>
           <thead><tr><th scope="col">Instance</th><th scope="col">Dispatched</th><th scope="col">Allowed</th><th scope="col">429</th><th scope="col">Transport failed</th><th scope="col">Unknown decision</th></tr></thead>

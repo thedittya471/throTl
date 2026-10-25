@@ -12,13 +12,14 @@ export function createRunCounts(config: RunConfig): RunCounts {
 }
 
 export async function generateTraffic({ config, counts, target, token, signal, onDraining,
-  maxInFlight = 256, timeoutMs = 15_000, canDispatch = () => true, targets, onDecision,
+  maxInFlight = 256, timeoutMs = 15_000, canDispatch = () => true, targets, onDecision, onUnavailable,
 }: {
   config: RunConfig;
   counts: RunCounts;
   target: URL;
   targets?: { url: URL; id: string; counts: RunCounts }[];
   onDecision?: (decision: FixedWindowDemoResponse['decision'], instance: string) => void;
+  onUnavailable?: () => void;
   token: string;
   signal: AbortSignal;
   onDraining: () => void;
@@ -52,6 +53,9 @@ export async function generateTraffic({ config, counts, target, token, signal, o
           });
           response.on('error', reject);
           response.on('end', () => {
+            if (response.statusCode === 503 && response.headers['x-ratelab-error'] === 'REDIS_UNAVAILABLE') {
+              onUnavailable?.(); resolve('unknownDecision'); return;
+            }
             if (onDecision && selected) {
               try {
                 const evidence = JSON.parse(body) as FixedWindowDemoResponse;

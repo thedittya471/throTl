@@ -1,10 +1,12 @@
+import { readRedisUrl, createSharedWindowStore } from './redis.ts';
 import { readInstances } from './instances.ts';
 import { createServer } from 'node:http';
 import { createApp, readConfig } from './server.ts';
 
 try {
   const { host, port } = readConfig();
-  const app = createApp({}, readInstances());
+  const redisUrl = readRedisUrl();
+  const app = createApp({}, readInstances(), redisUrl ? createSharedWindowStore(redisUrl) : undefined);
   const server = createServer(app);
   server.once('error', (error: NodeJS.ErrnoException) => {
     console.error(`API failed to listen: ${error.code ?? 'UNKNOWN'}`);

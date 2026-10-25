@@ -42,8 +42,10 @@ async function forward(request: Request) {
     });
     if (!upstream.ok) {
       const status = [400, 403, 404, 503].includes(upstream.status) ? upstream.status : 502;
+      const error = upstream.status === 503 && upstream.headers.get('X-RateLab-Error') === 'REDIS_UNAVAILABLE'
+        ? 'REDIS_UNAVAILABLE' : 'RUN_REQUEST_FAILED';
       await upstream.body?.cancel();
-      return Response.json({ error: 'RUN_REQUEST_FAILED' }, { status, headers });
+      return Response.json({ error }, { status, headers });
     }
     const data = await upstream.json();
     if (request.method === 'POST') {

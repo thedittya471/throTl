@@ -1,6 +1,6 @@
 # RateLab experiment specification
 
-Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–09 implement the fixed-window experiment with one or three real API processes described below.
+Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–10 implement the fixed-window experiment with one or three real API processes and local/shared state described below.
 
 The interview requirements below are agreed. Rules labeled **Proposed** are concrete defaults prepared for review, not previously approved product decisions. After review, this document becomes the behavior contract for implementation and tests. Hosting selection and capacity promises remain deferred.
 
@@ -192,7 +192,7 @@ Capacity=2, refill=1 token/second. Two requests at t=0 pass. At 500 ms, tokens=0
 
 ## Implemented first experiment (Task 06)
 
-The initial run supports steady traffic, one client, local state, and a global fixed-window key; Task 09 adds three-process routing. Each run gets fresh state and immutable validated settings. Defaults are 10 requests/second, 10,000 ms, and 5 admitted requests per 1,000 ms. Current input ceilings are 1,000 requests/second, 120,000 ms, 1,000 requests/window, and 60,000 ms/window; minimum duration is 100 ms. Full presets, Redis, comparison, clocks, and event recording remain later tasks.
+The initial run supports steady traffic, one client, local state, and a global fixed-window key; Task 09 adds three-process routing. Each run gets fresh state and immutable validated settings. Defaults are 10 requests/second, 10,000 ms, and 5 admitted requests per 1,000 ms. Current input ceilings are 1,000 requests/second, 120,000 ms, 1,000 requests/window, and 60,000 ms/window; minimum duration is 100 ms. Full presets, comparison, clock-offset controls, and event recording remain later tasks.
 
 `POST /runs` returns `{ run, token }`; `run.id` is an opaque identifier, while a separate 256-bit bearer token authorizes `GET /runs` and `DELETE /runs`. Credentials are not placed in URLs. A separate server-only token authorizes `/internal/runs/target`; that route returns the same decision-derived metadata as the standalone demo. The local target is derived from socket address/port rather than request Host; Task 09 optionally registers two peers from server-owned configuration. Unknown config fields and query parameters are rejected. The Next.js bridge bounds input and requires same-origin mutations; API controls require a custom header and do not enable CORS.
 
@@ -224,7 +224,19 @@ A coordinator reserves run capacity before asynchronous registration, registers 
 
 Snapshots optionally include one to three unique instance IDs and their counters. Per-instance counters describe assigned dispatches; scheduling misses stay at the coordinator. Detailed evidence is validated from bounded complete response bodies and identifies the instance. A dead process remains in rotation; transport failure is an unknown decision, not a 429. No retries or failover are introduced. Received evidence cannot reconstruct target evaluations whose responses are lost. Instance identity is available through `/instance`, response JSON, and `X-RateLab-Instance`.
 
-Scripted verification starts three real API processes, keeps requests within one window, and proves exactly 30 admissions for L=10 (10 each) across two fresh runs. It kills the third process mid-run and verifies separate transport errors, reconciled counters, and unavailable-peer setup rejection. This is a same-host correctness proof, not a throughput or multi-host resilience claim. Shared atomic allowance remains Task 10. Browser testing is excluded by user instruction.
+Scripted verification starts three real API processes, keeps requests within one window, and proves exactly 30 admissions for L=10 (10 each) across two fresh runs. It kills the third process mid-run and verifies separate transport errors, reconciled counters, and unavailable-peer setup rejection. This is a same-host correctness proof, not a throughput or multi-host resilience claim. Task 10 adds shared atomic allowance below. Browser testing is excluded by user instruction.
+
+## Implemented atomic shared state (Task 10)
+
+`RunConfig.stateMode` accepts `local` or `shared`, defaults to local when omitted, and is selected before starting. All registered targets receive the same immutable configuration and private run identity. Shared mode uses the official Redis client (6.3.0) with server-owned `REDIS_URL`; local mode and standalone `/demo` continue without a running Redis server.
+
+A single Lua script performs Redis `TIME`, reads window/count/effective time, checks allowance, updates the hash, and refreshes TTL atomically. Half-open epoch windows and before/after evidence match the local engine. Shared time comes from Redis, avoiding instance clock disagreement in this baseline; backwards Redis observations clamp against the retained last effective time. Key identity is `ratelab:{SHA256(private-target-token)}:fixed-window:global`, independent of instance and isolated per experiment. Rejections leave the admitted count unchanged.
+
+Each evaluation sets expiry to duration + 30 seconds from that evaluation, at most 150 seconds after the last evaluation. The coordinator deletes the exact shared key after disabling its local registration and receiving removal acknowledgement from every peer. Individual target deletion cannot reset another target's allowance. Failed or unavailable cleanup relies on TTL. Active counters must not be evicted or externally deleted; use Redis `noeviction` policy. Durable recovery, replication/failover, and Redis Cluster behavior are not claimed by this slice.
+
+Connections/commands have one-second deadlines; the client command queue is bounded to 2048, offline queuing and automatic reconnect/replay are disabled. Shared setup fails with HTTP 503 and safe `REDIS_UNAVAILABLE` metadata if any target cannot prepare Redis. During traffic, Redis failure is a 503 unknown decision, never a limiter 429. Generation is aborted and the final snapshot is `failed` with `error: REDIS_UNAVAILABLE`, retaining reconciled partial counters. SSE, the Next.js relay, and the UI understand failure. There is no local fallback. A future run may establish a new connection, while connection-generation checks prevent old limiters from resuming on it after possible state loss.
+
+Scripted tests use disposable local Redis servers and three real API processes. They demonstrate the unsafe read-then-write race, exactly L admissions for 90 concurrent HTTP requests at L=10, coordinator shared allowance, key isolation, configured TTL plus accelerated actual expiry, window reset/rollback evidence, cleanup on stop/completion, missing/disconnected Redis, replacement-connection guards, and terminal failed SSE/counter reconciliation. Browser tests are excluded by user instruction. The test suite requires `redis-server` or `REDIS_SERVER_BIN`; it does not connect to existing Redis data. Throughput and dependency failover remain outside this task.
 
 ## 9. Task 01 completion and review
 

@@ -17,7 +17,7 @@ export function RunSimulator() {
   const [token, setToken] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const active = run !== null && !['completed', 'stopped'].includes(run.status);
+  const active = run !== null && !['completed', 'stopped', 'failed'].includes(run.status);
 
   useEffect(() => {
     if (!token) return;
@@ -25,7 +25,7 @@ export function RunSimulator() {
     void watchRun(token, AbortSignal.any([controller.signal, AbortSignal.timeout(140_000)]), (snapshot) => {
       if (controller.signal.aborted) return;
       // Reconnect snapshots replace totals; old streams cannot overwrite a new or stopped run.
-      setRun((previous) => previous?.id !== snapshot.id || previous.status === 'stopped' ? previous : snapshot);
+      setRun((previous) => previous?.id !== snapshot.id || ['stopped', 'failed'].includes(previous.status) ? previous : snapshot);
       setError('');
     }, (connected) => {
       if (!controller.signal.aborted) setError(connected ? '' : 'Stream disconnected. Reconnecting; the run stops after 15 seconds without a stream.');
@@ -39,11 +39,14 @@ export function RunSimulator() {
     setPending(true);
     setError('');
     try {
-      const config = parseRunConfig(Object.fromEntries(fields.map(({ name }) => [name, Number(data.get(name))])));
+      const config = parseRunConfig({ ...Object.fromEntries(fields.map(({ name }) => [name, Number(data.get(name))])), stateMode: data.get('stateMode') });
       const response = await fetch('/api/runs', { method: 'POST',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
         signal: AbortSignal.timeout(6_000) });
-      if (!response.ok) throw new Error('Could not start. Check the API and available run capacity.');
+      if (!response.ok) {
+        const failure = await response.json();
+        throw new Error(failure.error === 'REDIS_UNAVAILABLE' ? 'Shared state is unavailable. Start Redis and check REDIS_URL on every API process.' : 'Could not start. Check the API and available run capacity.');
+      }
       const result = await response.json();
       if (typeof result.token !== 'string' || !/^[a-f0-9]{64}$/.test(result.token)) throw new Error('Invalid run credential');
       setRun(parseRunSnapshot(result.run));
@@ -71,10 +74,15 @@ export function RunSimulator() {
     <section className="simulator" aria-labelledby="run-heading">
       <div className="page-label"><span className="section-number">02</span> FIRST EXPERIMENT</div>
       <h2 id="run-heading">Watch a fixed window fill up.</h2>
-      <p className="connection-description">Steady traffic · one client · one instance · global allowance. Each run starts with fresh state and sends real HTTP requests to your demo API.</p>
+      <p className="connection-description">Steady traffic · one client · registered API instances · global allowance. Each run starts with fresh state and sends real HTTP requests to your demo API.</p>
       <form onSubmit={start}>
         <fieldset disabled={pending || active}>
           <legend>Experiment settings</legend>
+          <label htmlFor="stateMode">Limiter state</label>
+          <select id="stateMode" name="stateMode" defaultValue="local">
+            <option value="local">Local: separate allowance per instance</option>
+            <option value="shared">Shared: one Redis allowance across instances</option>
+          </select>
           <div className="run-fields">
             {fields.map(({ name, label, min, max }) => (
               <label key={name} htmlFor={name}>{label}
@@ -90,6 +98,7 @@ export function RunSimulator() {
         </div>
       </form>
       {error && <p className="run-error" role="alert">{error}</p>}
+      {run?.error === 'REDIS_UNAVAILABLE' && <p className="run-error" role="alert">Run failed: Redis became unavailable. Generation stopped; no local fallback was used. Unconfirmed requests remain unknown decisions.</p>}
       {run && <>
         <p className="run-note">Run {run.id} · {run.config.ratePerSecond} requests/s for {run.config.durationMs} ms · {run.config.limit} allowed / {run.config.windowMs} ms</p>
         <dl className="run-counts">

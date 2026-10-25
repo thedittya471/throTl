@@ -5,6 +5,7 @@ export type RunConfig = {
   ratePerSecond: number;
   limit: number;
   windowMs: number;
+  stateMode?: 'local' | 'shared';
 };
 
 export const DEFAULT_RUN_CONFIG: RunConfig = {
@@ -17,8 +18,11 @@ export function parseRunConfig(input: unknown): RunConfig {
   }
   const values = input as Record<string, unknown>;
   const bounds = { durationMs: [100, 120_000], ratePerSecond: [1, 1_000], limit: [1, 1_000], windowMs: [1, 60_000] } as const;
-  if (Object.keys(values).some((key) => !Object.hasOwn(bounds, key))) {
+  if (Object.keys(values).some((key) => !Object.hasOwn(bounds, key) && key !== 'stateMode')) {
     throw new Error('Unknown run setting');
+  }
+  if (values.stateMode !== undefined && !['local', 'shared'].includes(values.stateMode as string)) {
+    throw new Error('stateMode must be local or shared');
   }
   for (const [key, [min, max]] of Object.entries(bounds)) {
     const value = values[key];
@@ -29,6 +33,7 @@ export function parseRunConfig(input: unknown): RunConfig {
   return {
     durationMs: values.durationMs as number, ratePerSecond: values.ratePerSecond as number,
     limit: values.limit as number, windowMs: values.windowMs as number,
+    ...(values.stateMode === undefined ? {} : { stateMode: values.stateMode as 'local' | 'shared' }),
   };
 }
 
@@ -52,7 +57,8 @@ export type RunCounts = {
 export type RunSnapshot = {
   version: 1;
   id: string;
-  status: 'running' | 'draining' | 'stopping' | 'completed' | 'stopped';
+  status: 'running' | 'draining' | 'stopping' | 'completed' | 'stopped' | 'failed';
+  error?: 'REDIS_UNAVAILABLE';
   config: RunConfig;
   counts: RunCounts;
   telemetry?: RunTelemetry;
@@ -63,10 +69,12 @@ export function parseRunSnapshot(input: unknown): RunSnapshot {
   const run = input as Partial<RunSnapshot> | null;
   if (!run || run.version !== 1 || typeof run.id !== 'string' ||
       !/^[a-f0-9]{32}$/.test(run.id) ||
-      !['running', 'draining', 'stopping', 'completed', 'stopped'].includes(run.status ?? '') ||
+      !['running', 'draining', 'stopping', 'completed', 'stopped', 'failed'].includes(run.status ?? '') ||
       !run.counts || typeof run.counts !== 'object') {
     throw new Error('Invalid run response');
   }
+  if ((run.error !== undefined && run.error !== 'REDIS_UNAVAILABLE') ||
+      (run.status === 'failed' && run.error !== 'REDIS_UNAVAILABLE')) throw new Error('Invalid run error');
   const names: (keyof RunCounts)[] = ['scheduled', 'dispatched', 'responseReceived', 'allowed',
     'rejected', 'unknownDecision', 'transportFailed', 'cancelled', 'timedOut', 'inFlight',
     'missed', 'missedLate', 'missedInFlight', 'missedCancelled'];
@@ -83,6 +91,7 @@ export function parseRunSnapshot(input: unknown): RunSnapshot {
   }
   return { version: 1, id: run.id, status: run.status as RunSnapshot['status'],
     config: parseRunConfig(run.config), counts: run.counts,
+    ...(run.error === undefined ? {} : { error: run.error }),
     ...(run.instances === undefined ? {} : { instances: run.instances }),
     ...(run.telemetry === undefined ? {} : { telemetry: parseRunTelemetry(run.telemetry) }) };
 }

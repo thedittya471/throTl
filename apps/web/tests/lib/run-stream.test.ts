@@ -42,3 +42,10 @@ test('watcher sends credentials in headers and reconnects with replacement total
   assert.equal(attempts, 2);
   assert.equal(allowed, 1);
 });
+
+test('SSE parser delivers Redis failure as a terminal snapshot', async () => {
+  let received = '';
+  const failed = { ...run, status: 'failed', error: 'REDIS_UNAVAILABLE', config: { ...run.config, stateMode: 'shared' } };
+  await readRunStream(stream(`event: snapshot\ndata: ${JSON.stringify(failed)}\n\n`), (snapshot) => { received = snapshot.error ?? ''; });
+  assert.equal(received, 'REDIS_UNAVAILABLE');
+});

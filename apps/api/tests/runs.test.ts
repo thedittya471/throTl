@@ -133,3 +133,11 @@ test('authenticated SSE reconnects with current totals and delivers the final re
   reconcile(final.counts);
   assert.deepEqual(await (await fetch(url, { headers: auth })).json(), final);
 });
+
+test('shared mode without configured Redis fails explicitly while local mode stays available', async (t) => {
+  const { url, headers, config, start } = await setup(t);
+  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...config, stateMode: 'shared' }) });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'REDIS_UNAVAILABLE' });
+  assert.equal((await start()).status, 201);
+});

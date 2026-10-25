@@ -1,6 +1,7 @@
 import { CONTRACT_VERSION, type HealthResponse } from '@ratelab/contracts';
 import { isIP } from 'node:net';
 import express from 'express';
+import type { SharedWindowStore } from './redis.ts';
 import { createTargets } from './targets.ts';
 import type { InstanceOptions } from './instances.ts';
 import { createRunRouter } from './runs.ts';
@@ -20,7 +21,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   return { host, port };
 }
 
-export function createApp(demoOptions: DemoOptions = {}, instances: InstanceOptions = { instanceId: 'local', peers: [] }) {
+export function createApp(demoOptions: DemoOptions = {}, instances: InstanceOptions = { instanceId: 'local', peers: [] }, shared?: SharedWindowStore) {
   const app = express();
   app.disable('x-powered-by');
   app.get('/health', (_request, response) => {
@@ -30,10 +31,12 @@ export function createApp(demoOptions: DemoOptions = {}, instances: InstanceOpti
   });
   app.use('/demo', createDemoRouter({ ...demoOptions, instanceId: instances.instanceId }));
   app.get('/instance', (_request, response) => response.set('Cache-Control', 'no-store').json({ instanceId: instances.instanceId }));
-  const targets = createTargets(instances.instanceId, instances.secret, demoOptions.now);
+  const targets = createTargets(instances.instanceId, instances.secret, demoOptions.now, shared);
   app.use('/internal/runs', targets.router);
   const runs = createRunRouter(instances, targets);
   app.use('/runs', runs.router);
-  app.locals.stopRuns = runs.shutdown;
+  app.locals.stopRuns = async () => {
+    try { await runs.shutdown(); } finally { shared?.close(); }
+  };
   return app;
 }

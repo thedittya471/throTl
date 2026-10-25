@@ -20,7 +20,7 @@ export async function readRunStream(body: ReadableStream<Uint8Array>, onSnapshot
         const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
         const run = parseRunSnapshot(JSON.parse(data));
         onSnapshot(run);
-        if (['completed', 'stopped'].includes(run.status)) return;
+        if (['completed', 'stopped', 'failed'].includes(run.status)) return;
       }
       if (pending.length > 64 * 1_024) throw new Error('Event exceeds budget');
     }

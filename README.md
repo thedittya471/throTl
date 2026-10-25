@@ -42,6 +42,7 @@ apps/
       server.ts                 # Express app and configuration
       demo.ts                   # Fixed-window HTTP responses
       runs.ts                   # Coordinator lifecycle and peer registration
+      redis.ts                  # Bounded Redis connection and atomic fixed-window script
       instances.ts              # Validated server-owned instance configuration
       targets.ts                # Private per-process limiter stores
       traffic.ts                # Bounded steady HTTP generator
@@ -258,7 +259,7 @@ npm run dev:instances
 npm run dev:web
 ```
 
-The launcher starts the same `apps/api/src/index.ts` entry point three times on loopback ports 3001–3003, with IDs `api-1`, `api-2`, and `api-3`. The coordinator on 3001 is also the first target. Next.js keeps its existing `API_ORIGIN=http://127.0.0.1:3001`. Stop an existing single API before starting this command. Restart the launcher after API edits; it does not watch files. Ctrl-C stops all children, and an unexpected child exit shuts down the group. No Docker, Redis, or new dependency is required.
+The launcher starts the same `apps/api/src/index.ts` entry point three times on loopback ports 3001–3003, with IDs `api-1`, `api-2`, and `api-3`. The coordinator on 3001 is also the first target. Next.js keeps its existing `API_ORIGIN=http://127.0.0.1:3001`. Stop an existing single API before starting this command. Restart the launcher after API edits; it does not watch files. Ctrl-C stops all children, and an unexpected child exit shuts down the group. Local mode requires no running Redis server or Docker. Shared mode uses Redis as described below.
 
 Each run registers fresh independent local limiter state on the three processes. Actual dispatched requests rotate `api-1 → api-2 → api-3`; missed schedule slots do not advance routing. Connection pooling and existing in-flight limits still apply. The UI displays per-instance dispatched, allowed, rejected, transport-failed, and unknown-decision totals. Retained decisions identify their target; the usage meter describes that specific instance's latest received decision, not combined allowance.
 
@@ -276,7 +277,45 @@ The launcher generates a fresh secret in memory and does not print it. `GET /ins
 
 A peer must register successfully before a run starts. Failed setup returns 503 and cleans up partial registration. During a run, an unavailable target stays in rotation: failed connections count as transport failures with unknown decisions, never as 429, and there is no automatic retry or failover. Cleanup requests have three-second deadlines. Run summaries include an additive optional `instances: [{ id, counts }]` field; per-instance scheduled/dispatched counts cover assigned attempts, while missed slots belong to the coordinator totals. Received response bodies are bounded to 8192 characters and validated before evidence enters telemetry.
 
-`npm test` includes a multi-process test that starts three real API entry points, proves exactly 3L across two isolated runs, kills one target, verifies transport accounting, and rejects subsequent setup while that peer is down. Target credential/capacity/cleanup and invalid-response tests cover the trust boundaries. This demonstrates independent processes on one host; it is not a throughput benchmark or proof of independent-host resilience. Shared Redis allowance is Task 10.
+`npm test` includes a multi-process test that starts three real API entry points, proves exactly 3L across two isolated runs, kills one target, verifies transport accounting, and rejects subsequent setup while that peer is down. Target credential/capacity/cleanup and invalid-response tests cover the trust boundaries. This demonstrates independent processes on one host; it is not a throughput benchmark or proof of independent-host resilience. Task 10 adds the shared Redis allowance below.
+
+## Atomic shared fixed window (Task 10)
+
+Choose **Local** or **Shared** before starting a run. The setting is immutable for that run. Local mode retains an independent allowance per instance; shared mode uses one Redis allowance across all registered targets. Omitted `stateMode` still means local for earlier callers. The standalone `/demo` remains local.
+
+With Redis installed, start a disposable local server in one terminal:
+
+```sh
+redis-server --bind 127.0.0.1 --port 6379 --save "" --appendonly no --maxmemory-policy noeviction
+```
+
+Then start the APIs and web app in separate terminals:
+
+```sh
+REDIS_URL=redis://127.0.0.1:6379 npm run dev:instances
+```
+
+```sh
+npm run dev:web
+```
+
+Use an existing Redis server instead if one already owns port 6379. All API processes must use the same Redis server/database. The launcher inherits `REDIS_URL` from its environment; it does not load `apps/api/.env`. Separately launched `dev:api`/`start` processes can use that optional file. Redis is contacted lazily when shared mode is requested, so an unavailable Redis server does not prevent local experiments or the API health endpoint from working. Verified with Node 24.22.1, Redis server 8.6.2, and the exact official `redis` client dependency 6.3.0.
+
+For the same limit-10, 60000-ms-window, 60-requests/s, 1000-ms experiment, local mode admits 30 across three instances; shared mode admits 10 combined, provided the run stays inside one window. The UI explains the active mode, shows the shared usage evidence, and preserves per-instance routing counts. Shared decisions use Redis `TIME`; local decisions use the process clock. The existing half-open windows and rollback-clamping explanation remain in the inspector.
+
+The fixed-window Lua script reads the previous window/count/time, computes the boundary, decides admission, writes the resulting state, and sets expiry in **one atomic operation**. Rejections do not consume allowance. It uses one hash per run/algorithm/global key: `ratelab:{SHA256(private-target-token)}:fixed-window:global`. Raw capabilities are not stored in Redis key names. Redis documents [atomic script execution](https://redis.io/docs/latest/develop/programmability/eval-intro/) and [server time](https://redis.io/docs/latest/commands/time/).
+
+Every evaluation refreshes the key TTL to run duration + 30 seconds (at most 150 seconds after the last evaluation with current input limits). Normal completion and explicit stop remove target registrations, then delete the exact shared key after all peers acknowledge removal. A target's individual removal does not delete shared allowance for other instances. If cleanup cannot be confirmed or Redis is unavailable, expiry removes the orphaned key. No scans or database-wide deletes are used by the application. Keep active limiter keys on a Redis deployment with `maxmemory-policy noeviction`; deleting or evicting an active counter can reset allowance.
+
+Connections and commands have one-second deadlines, the command queue is bounded, offline queuing is disabled, and commands are not automatically replayed after disconnect. A failed shared setup returns HTTP 503 with safe `REDIS_UNAVAILABLE` metadata. During a run, a target Redis failure returns 503 rather than 429; the coordinator cancels generation and emits a terminal snapshot with `status: "failed"` and `error: "REDIS_UNAVAILABLE"`. The UI and SSE client understand that terminal state. Confirmed prior outcomes remain counted; the failed request and unconfirmed in-flight work remain unknown decisions. There is no local fallback. A newly requested run may establish a new connection; old runs cannot resume on it after Redis may have lost state. See the official client's [production reliability guidance](https://redis.io/docs/latest/develop/clients/nodejs/produsage/).
+
+`npm test` now requires a `redis-server` executable on PATH, or an explicit `REDIS_SERVER_BIN` path. Tests start isolated loopback servers on temporary ports with persistence disabled and stop them afterward; they do not use `REDIS_URL` or your existing Redis data. Focused checks after building contracts:
+
+```sh
+npm exec --workspace @ratelab/api -- node --test tests/limiters/fixed-window.redis.test.ts tests/shared-instances.test.ts
+```
+
+Coverage includes a deliberate unsafe read-then-write race, exact atomic allowance across three connections, 90 concurrent HTTP requests across three real API processes admitting exactly 10, isolated keys, actual Redis expiry after TTL acceleration, stale-window reset, rollback evidence, explicit cleanup, disconnected checks, replacement-connection protection, final failed SSE delivery, and stopped dispatch after Redis loss. These are correctness tests; high-load capacity and browser performance remain later tasks.
 
 ## Learning view (Task 08)
 
@@ -310,7 +349,7 @@ npm run lint
 npm run build
 ```
 
-Tests use Node's built-in runner, with real loopback HTTP for the API and controlled upstream responses for the Next.js health route. Local HTTP tests need permission to bind localhost. `npm test` and typecheck build the shared contracts first. The build runs contracts, API, and web in dependency order.
+Redis integration tests require `redis-server` on PATH (or `REDIS_SERVER_BIN`) and start disposable instances automatically. Tests use Node's built-in runner, with real loopback HTTP for the API and controlled upstream responses for the Next.js health route. Local HTTP tests need permission to bind localhost. `npm test` and typecheck build the shared contracts first. The build runs contracts, API, and web in dependency order.
 
 Focused checks:
 

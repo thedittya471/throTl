@@ -29,3 +29,12 @@ test('run response validates bounded instance identities and per-instance counte
     assert.throws(() => parseRunSnapshot({ ...run, instances }));
   }
 });
+
+test('state mode defaults to local behavior and accepts only local or shared', () => {
+  for (const stateMode of ['local', 'shared']) {
+    assert.equal(parseRunConfig({ ...DEFAULT_RUN_CONFIG, stateMode }).stateMode, stateMode);
+  }
+  for (const stateMode of [null, '', 'redis', true, 1]) {
+    assert.throws(() => parseRunConfig({ ...DEFAULT_RUN_CONFIG, stateMode }));
+  }
+});

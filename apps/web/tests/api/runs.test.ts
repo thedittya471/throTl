@@ -58,3 +58,15 @@ test('run bridge hides upstream errors and rejects incompatible responses', asyn
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('private URL'); });
   assert.deepEqual(await (await GET(request())).json(), { error: 'RUN_API_UNAVAILABLE' });
 });
+
+test('run bridge forwards shared mode and exposes only the safe Redis failure code', async (t) => {
+  const config = { ...DEFAULT_RUN_CONFIG, stateMode: 'shared' };
+  t.mock.method(globalThis, 'fetch', async (_url: URL, options: RequestInit) => {
+    assert.deepEqual(JSON.parse(String(options.body)), config);
+    return Response.json({ private: 'hidden' }, { status: 503, headers: { 'X-RateLab-Error': 'REDIS_UNAVAILABLE' } });
+  });
+  const response = await POST(new Request('http://localhost/api/runs', { method: 'POST',
+    headers: { Origin: 'http://localhost' }, body: JSON.stringify(config) }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'REDIS_UNAVAILABLE' });
+});
