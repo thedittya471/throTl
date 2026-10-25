@@ -15,8 +15,17 @@ export function ExperimentView({ run }: { run: RunSnapshot }) {
 
   return (
     <section className="experiment-view" aria-labelledby={`${chartId}-heading`}>
+      {run.instances && <section aria-label="Per-instance routing">
+        <h3>Round-robin routing · independent local state</h3>
+        <p>Each instance has its own allowance of {run.config.limit} per {run.config.windowMs} ms for one global key. {run.instances.length} instance(s) can admit up to {run.instances.length * run.config.limit} in one window.</p>
+        <div className="table-scroll"><table>
+          <caption>Real HTTP outcomes by target process. Failed targets stay in rotation; requests are not retried.</caption>
+          <thead><tr><th scope="col">Instance</th><th scope="col">Dispatched</th><th scope="col">Allowed</th><th scope="col">429</th><th scope="col">Transport failed</th><th scope="col">Unknown decision</th></tr></thead>
+          <tbody>{run.instances.map(({ id, counts }) => <tr key={id}><th scope="row">{id}</th><td>{counts.dispatched}</td><td>{counts.allowed}</td><td>{counts.rejected}</td><td>{counts.transportFailed}</td><td>{counts.unknownDecision}</td></tr>)}</tbody>
+        </table></div>
+      </section>}
       <h3 id={`${chartId}-heading`}>Allowed and rejected over time</h3>
-      <p className="run-note">Target-observed decisions in one-second intervals. {telemetry.allowed} allowed, {telemetry.rejected} rejected, {telemetry.evaluated} evaluated. These can differ from confirmed HTTP responses when a response is lost.</p>
+      <p className="run-note">Received decision evidence in one-second intervals. {telemetry.allowed} allowed, {telemetry.rejected} rejected, {telemetry.evaluated} evaluated. Lost or invalid responses leave decision evidence unknown.</p>
       <p className="timeline-legend"><span>■ Allowed: solid</span><span>▨ Rejected: diagonal lines</span></p>
       {chart.bars.length === 0 ? <p>Waiting for the first evaluated request.</p> : <>
         <svg className="traffic-chart" viewBox="0 0 620 210" role="img" aria-labelledby={`${chartId}-title ${chartId}-description`}>
@@ -39,7 +48,7 @@ export function ExperimentView({ run }: { run: RunSnapshot }) {
         </svg>
         <details className="timeline-table"><summary>Read exact timeline counts as a table</summary>
           <div className="table-scroll"><table>
-            <caption>Target decisions per one-second interval. Missing intervals contain no evaluations.</caption>
+            <caption>Received decisions per one-second interval. Missing intervals contain no received evidence.</caption>
             <thead><tr><th scope="col">Elapsed interval (s)</th><th scope="col">Allowed</th><th scope="col">Rejected</th></tr></thead>
             <tbody>{telemetry.timeline.map((point) => <tr key={point.elapsedMs}>
               <th scope="row">{point.elapsedMs / 1_000}–{point.elapsedMs / 1_000 + 1}</th><td>{point.allowed}</td><td>{point.rejected}</td>
@@ -47,12 +56,12 @@ export function ExperimentView({ run }: { run: RunSnapshot }) {
           </table></div>
         </details>
       </>}
-      <p className="run-note">Timeline retains at most 120 nonempty one-second intervals. Earlier intervals can leave the view; aggregate totals above still cover the whole run.</p>
+      <p className="run-note">Timeline retains at most 120 nonempty one-second intervals. Earlier intervals can leave the view; aggregate totals above still cover all received decision evidence.</p>
       {latest && <section className="window-state" aria-labelledby={`${chartId}-window`}>
-        <h3 id={`${chartId}-window`}>Window at the latest decision</h3>
+        <h3 id={`${chartId}-window`}>Window at the latest received decision</h3>
         <label htmlFor={`${chartId}-usage`}>Used allowance: {latest.decision.state.countAfter} / {run.config.limit} requests</label>
         <meter id={`${chartId}-usage`} min="0" max={run.config.limit} value={latest.decision.state.countAfter} />
-        <p className="run-note">As of {latest.elapsedMs} ms after run start. Remaining: {latest.decision.remaining} requests. Window resets at {latest.decision.resetAtMs} Unix ms. State updates when a request is evaluated; this is not a live countdown.</p>
+        <p className="run-note">Instance {latest.instance ?? 'local'}. As of {latest.elapsedMs} ms after run start. Remaining: {latest.decision.remaining} requests. Window resets at {latest.decision.resetAtMs} Unix ms. State updates when a request is evaluated; this is not a live countdown.</p>
       </section>}
       <p className="detail-policy">{omitted > 0 ? 'Detail limited' : 'All evaluated details retained'}: showing {telemetry.recent.length} of {telemetry.evaluated} evaluated requests. {omitted} older details omitted. This is a recent excerpt, not a statistical sample; totals and retained timeline intervals include all evaluations.</p>
       <DecisionInspector recent={telemetry.recent} />

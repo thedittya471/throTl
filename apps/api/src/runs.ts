@@ -3,24 +3,23 @@ import { Router, json, type ErrorRequestHandler } from 'express';
 import { parseRunConfig, type RunSnapshot } from '@ratelab/contracts';
 import { createRunTelemetry } from './telemetry.ts';
 import { createRunEvents } from './events.ts';
-import { sendFixedWindowDecision } from './demo.ts';
-import { createFixedWindowLimiter } from './limiters/fixed-window.ts';
+import type { InstanceOptions } from './instances.ts';
+import type { createTargets } from './targets.ts';
 import { createRunCounts, generateTraffic } from './traffic.ts';
 
 type Run = {
   snapshot: RunSnapshot;
   controller: AbortController;
   done: Promise<void>;
-  limiter: ReturnType<typeof createFixedWindowLimiter>;
   expiresAt: number;
   events: ReturnType<typeof createRunEvents>;
-  telemetry: ReturnType<typeof createRunTelemetry>;
 };
 
-export function createRunRouter(now = Date.now) {
+export function createRunRouter(instances: InstanceOptions,
+  registry: ReturnType<typeof createTargets>) {
   const router = Router();
   const runs = new Map<string, Run>();
-  const targets = new Map<string, Run>();
+
   let closing = false;
 
   router.use((_request, response, next) => {
@@ -29,18 +28,6 @@ export function createRunRouter(now = Date.now) {
       if (run.expiresAt <= Date.now()) { run.events.close(); runs.delete(token); }
     }
     next();
-  });
-
-  // Target credentials are private to the generator, separate from browser control credentials.
-  router.get('/target', (request, response) => {
-    const run = targets.get(request.get('Authorization') ?? '');
-    if (!run || !['running', 'draining'].includes(run.snapshot.status)) {
-      response.status(404).json({ error: 'TARGET_NOT_FOUND' });
-      return;
-    }
-    const decision = run.limiter.check('global');
-    run.telemetry.record(decision);
-    sendFixedWindowDecision(response, decision);
   });
 
   router.use((request, response, next) => {
@@ -61,7 +48,7 @@ export function createRunRouter(now = Date.now) {
     else run.events.connect(response);
   });
 
-  router.post('/', json({ limit: '1kb' }), (request, response) => {
+  router.post('/', json({ limit: '1kb' }), async (request, response) => {
     let config;
     try { config = parseRunConfig(request.body); }
     catch (error) {
@@ -81,35 +68,75 @@ export function createRunRouter(now = Date.now) {
       return;
     }
     const host = address.includes(':') ? `[${address}]` : address;
-    const target = new URL(`http://${host}:${port}/runs/target`);
+    const target = new URL(`http://${host}:${port}/internal/runs/target`);
     const token = randomBytes(32).toString('hex');
     const targetToken = `Bearer ${randomBytes(32).toString('hex')}`;
     const telemetry = createRunTelemetry();
+    const routes = [{ url: target, id: instances.instanceId, counts: createRunCounts(config) }];
+    routes[0]!.counts.scheduled = 0;
+    // Reserve capacity before awaiting peer registration.
+    const controller = new AbortController();
     const snapshot: RunSnapshot = {
       version: 1, id: randomBytes(16).toString('hex'), status: 'running',
       config, counts: createRunCounts(config), telemetry: telemetry.data,
+      instances: routes.map(({ id, counts }) => ({ id, counts })),
     };
-    const controller = new AbortController();
     const events = createRunEvents(snapshot, () => {
       snapshot.status = 'stopping';
       controller.abort();
     });
+    let settle!: () => void;
+    const done = new Promise<void>((resolve) => { settle = resolve; });
     const run: Run = {
-      snapshot, controller, events, telemetry, done: Promise.resolve(),
-      limiter: createFixedWindowLimiter({ ...config, now }), expiresAt: Infinity,
+      snapshot, controller, events, done,
+      expiresAt: Infinity,
     };
     runs.set(`Bearer ${token}`, run);
-    targets.set(targetToken, run);
-    run.done = generateTraffic({ config, counts: snapshot.counts, target,
-      token: targetToken.slice(7), signal: run.controller.signal,
+    const peerRequest = (origin: string, method: string) => fetch(`${origin}/internal/runs`, {
+      method, redirect: 'error', signal: AbortSignal.timeout(3_000),
+      headers: { Authorization: `Bearer ${instances.secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: targetToken, config }),
+    });
+    const cleanup = async () => {
+      registry.remove(targetToken);
+      await Promise.allSettled(instances.peers.map(async (origin) => { const result = await peerRequest(origin, 'DELETE'); await result.body?.cancel(); }));
+    };
+    try {
+      registry.register(targetToken, config);
+      for (const origin of instances.peers) {
+        const registered = await peerRequest(origin, 'POST');
+        if (!registered.ok) { await registered.body?.cancel(); throw new Error('TARGET_UNAVAILABLE'); }
+        const identity = await registered.json();
+        if (typeof identity.instanceId !== 'string' || !/^[a-zA-Z0-9_-]{1,32}$/.test(identity.instanceId) || routes.some((item) => item.id === identity.instanceId) || origin === target.origin) {
+          throw new Error('INVALID_INSTANCE');
+        }
+        const peerCounts = createRunCounts(config); peerCounts.scheduled = 0;
+        routes.push({ url: new URL(`${origin}/internal/runs/target`), id: identity.instanceId, counts: peerCounts });
+      }
+      snapshot.instances = routes.map(({ id, counts }) => ({ id, counts }));
+      if (closing || controller.signal.aborted) throw new Error('RUN_STOPPED');
+    } catch {
+      await cleanup(); events.close(); runs.delete(`Bearer ${token}`); settle();
+      response.status(503).json({ error: 'TARGET_UNAVAILABLE' }); return;
+    }
+    void generateTraffic({ config, counts: snapshot.counts, target,
+      token: targetToken.slice(7), signal: run.controller.signal, targets: routes,
+      onDecision: (decision, instance) => telemetry.record(decision, instance),
       canDispatch: () => [...runs.values()].reduce((total, item) => total + item.snapshot.counts.inFlight, 0) < 2_048,
       onDraining() { if (snapshot.status === 'running') snapshot.status = 'draining'; },
-    }).then(() => {
+    }).then(async () => {
+      await cleanup();
       snapshot.status = run.controller.signal.aborted ? 'stopped' : 'completed';
-      targets.delete(targetToken);
       run.expiresAt = Date.now() + 10 * 60_000;
       events.finish();
-    });
+    }).catch(async () => {
+      console.error('Run stopped after an unexpected generator failure');
+      await cleanup();
+      snapshot.status = 'stopped';
+      registry.remove(targetToken);
+      run.expiresAt = Date.now() + 10 * 60_000;
+      events.finish();
+    }).finally(settle);
     response.status(201).json({ run: snapshot, token });
   });
 

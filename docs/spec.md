@@ -1,6 +1,6 @@
 # RateLab experiment specification
 
-Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–08 implement the local fixed-window experiment described below.
+Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–09 implement the fixed-window experiment with one or three real API processes described below.
 
 The interview requirements below are agreed. Rules labeled **Proposed** are concrete defaults prepared for review, not previously approved product decisions. After review, this document becomes the behavior contract for implementation and tests. Hosting selection and capacity promises remain deferred.
 
@@ -192,9 +192,9 @@ Capacity=2, refill=1 token/second. Two requests at t=0 pass. At 500 ms, tokens=0
 
 ## Implemented first experiment (Task 06)
 
-The initial run supports steady traffic, one client, one local instance, and a global fixed-window key. Each run gets fresh state and immutable validated settings. Defaults are 10 requests/second, 10,000 ms, and 5 admitted requests per 1,000 ms. Current input ceilings are 1,000 requests/second, 120,000 ms, 1,000 requests/window, and 60,000 ms/window; minimum duration is 100 ms. Full presets, Redis, comparison, clocks, and event recording remain later tasks.
+The initial run supports steady traffic, one client, local state, and a global fixed-window key; Task 09 adds three-process routing. Each run gets fresh state and immutable validated settings. Defaults are 10 requests/second, 10,000 ms, and 5 admitted requests per 1,000 ms. Current input ceilings are 1,000 requests/second, 120,000 ms, 1,000 requests/window, and 60,000 ms/window; minimum duration is 100 ms. Full presets, Redis, comparison, clocks, and event recording remain later tasks.
 
-`POST /runs` returns `{ run, token }`; `run.id` is an opaque identifier, while a separate 256-bit bearer token authorizes `GET /runs` and `DELETE /runs`. Credentials are not placed in URLs. A separate server-only token authorizes `/runs/target`; that route returns the same decision-derived metadata as the standalone demo. The generator's only registered target is the current API listener, derived from socket address/port rather than request Host or configuration. Unknown config fields and query parameters are rejected. The Next.js bridge bounds input and requires same-origin mutations; API controls require a custom header and do not enable CORS.
+`POST /runs` returns `{ run, token }`; `run.id` is an opaque identifier, while a separate 256-bit bearer token authorizes `GET /runs` and `DELETE /runs`. Credentials are not placed in URLs. A separate server-only token authorizes `/internal/runs/target`; that route returns the same decision-derived metadata as the standalone demo. The local target is derived from socket address/port rather than request Host; Task 09 optionally registers two peers from server-owned configuration. Unknown config fields and query parameters are rejected. The Next.js bridge bounds input and requires same-origin mutations; API controls require a custom header and do not enable CORS.
 
 Runs move from running to draining to completed, or through stopping to stopped. Stop is idempotent and returns after all generator tasks settle. Process shutdown cancels runs before closing the listener. The generator uses monotonic time, keep-alive HTTP, at most 256 in-flight requests per run and 2,048 total, a 15-second total request deadline, and 100 ms lateness tolerance. Aggregate admission is capped at 10 active runs / 5,000 offered requests per second; 20 snapshots are retained for 10 minutes after settlement with lazy expiry. These budgets do not establish achieved throughput.
 
@@ -210,11 +210,21 @@ A 15-second grace deadline begins at creation and after disconnect. A new author
 
 ## Implemented learning view (Task 08)
 
-Snapshots may now include `telemetry`: target-observed `evaluated`, `allowed`, `rejected`, a rolling timeline of at most 120 nonempty one-second intervals, and the most recent 50 decision records. A record's sequence denotes target arrival order, its elapsed time uses the run's monotonic observation clock, and its decision is the actual limiter result. Aggregate totals are never sampled or decremented when history is evicted. A visible UI indicator reports omitted older details and identifies the recent excerpt as non-statistical. Complete/sampled recording policies remain Task 18.
+Snapshots may now include `telemetry`: received-evidence `evaluated`, `allowed`, `rejected`, a rolling timeline of at most 120 nonempty one-second intervals, and the most recent 50 decision records. A record's sequence denotes response completion order at the coordinator, its elapsed time uses the run's monotonic observation clock, and its decision is the actual received limiter result. A lost response leaves evidence unknown; this is not a target-side audit log. Task 09 adds the instance ID to each retained record. Aggregate totals are never sampled or decremented when history is evicted. A visible UI indicator reports omitted older details and identifies the recent excerpt as non-statistical. Complete/sampled recording policies remain Task 18.
 
 The SVG timeline has seconds and request-count units, solid/hatch legend encodings, and an exact table. Window usage is state at the latest decision, including remaining allowance and reset Unix milliseconds, not an inferred countdown. A native request selector exposes before/after state, `[start, end)` boundaries, raw/effective clocks, clamp status, reason, and retry delay. Target observations remain separate from generator-confirmed HTTP outcomes. Reconnect replaces bounded arrays; it does not append duplicate records. Shared validation bounds histories and checks integer evidence/order. The optional field preserves the earlier snapshot contract.
 
 Scripted verification covers deterministic exhaustion/reset, bounded retention, whole-run aggregate correctness, snapshot size, actual HTTP snapshots, invalid telemetry, and chart geometry. Browser/keyboard/visual verification is explicitly excluded for this task.
+
+## Implemented three-process routing (Task 09)
+
+`npm run dev:instances` starts three copies of the same API entry point with independent stores, ports 3001–3003 and IDs api-1–api-3. The first process coordinates and also evaluates requests; its two peers only need server-owned origins and a shared internal registration secret. Single-process mode remains the default. No Redis, Docker, additional runtime dependency, or extra per-algorithm process is introduced.
+
+A coordinator reserves run capacity before asynchronous registration, registers fresh per-run capabilities and policy on every target, then sends actual HTTP requests round-robin. Setup errors return 503 and remove partial state. Ten target registrations per process and duration + 30-second expiry bound orphaned state; normal stop/completion/shutdown explicitly delete it. Target configuration comes only through authenticated internal registration. Private target and browser control credentials are distinct; arbitrary target URLs remain rejected by run validation.
+
+Snapshots optionally include one to three unique instance IDs and their counters. Per-instance counters describe assigned dispatches; scheduling misses stay at the coordinator. Detailed evidence is validated from bounded complete response bodies and identifies the instance. A dead process remains in rotation; transport failure is an unknown decision, not a 429. No retries or failover are introduced. Received evidence cannot reconstruct target evaluations whose responses are lost. Instance identity is available through `/instance`, response JSON, and `X-RateLab-Instance`.
+
+Scripted verification starts three real API processes, keeps requests within one window, and proves exactly 30 admissions for L=10 (10 each) across two fresh runs. It kills the third process mid-run and verifies separate transport errors, reconciled counters, and unavailable-peer setup rejection. This is a same-host correctness proof, not a throughput or multi-host resilience claim. Shared atomic allowance remains Task 10. Browser testing is excluded by user instruction.
 
 ## 9. Task 01 completion and review
 

@@ -13,7 +13,7 @@ export function DecisionInspector({ recent }: { recent: DecisionDetail[] }) {
   return (
     <section className="decision-inspector" aria-labelledby="inspector-heading">
       <h3 id="inspector-heading">Inspect a request</h3>
-      <label htmlFor="decision-selection">Retained request (target arrival order)</label>
+      <label htmlFor="decision-selection">Retained request (response completion order)</label>
       <select id="decision-selection" value={sequence} onChange={(event) => setSelected(Number(event.target.value))}>
         {recent.map((entry) => <option key={entry.sequence} value={entry.sequence}>
           #{entry.sequence} · {entry.elapsedMs} ms · {entry.decision.allowed ? 'Allowed' : 'Rejected'}
@@ -24,7 +24,8 @@ export function DecisionInspector({ recent }: { recent: DecisionDetail[] }) {
         ? `The window held ${state.countBefore} of ${state.limit} allowed requests. This request consumed one allowance.`
         : `The window had reached its limit of ${state.limit}. This rejection did not increase the counter.`}</p>
       <dl className="decision-facts">
-        <div><dt>Arrival since run start</dt><dd>{elapsedMs} ms</dd></div>
+        <div><dt>Instance</dt><dd>{detail.instance ?? 'local'}</dd></div>
+        <div><dt>Response since run start</dt><dd>{elapsedMs} ms</dd></div>
         <div><dt>Reason</dt><dd>{decision.reason === 'within_limit' ? 'Within limit' : 'Limit exhausted'}</dd></div>
         <div><dt>Counter before → after</dt><dd>{state.countBefore} → {state.countAfter} requests</dd></div>
         <div><dt>Remaining after decision</dt><dd>{decision.remaining} requests</dd></div>

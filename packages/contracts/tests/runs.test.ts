@@ -17,3 +17,15 @@ test('run response parser rejects invalid identities, states, and counters', () 
     assert.throws(() => parseRunSnapshot(input));
   }
 });
+
+test('run response validates bounded instance identities and per-instance counters', () => {
+  const run = { version: 1, id: 'a'.repeat(32), status: 'completed', config: DEFAULT_RUN_CONFIG,
+    counts: { scheduled: 0, dispatched: 0, responseReceived: 0, allowed: 0, rejected: 0, unknownDecision: 0,
+      transportFailed: 0, cancelled: 0, timedOut: 0, inFlight: 0, missed: 0, missedLate: 0, missedInFlight: 0, missedCancelled: 0 } };
+  const instance = { id: 'api-1', counts: run.counts };
+  assert.equal(parseRunSnapshot({ ...run, instances: [instance] }).instances![0]!.id, 'api-1');
+  for (const instances of [[], [instance, instance], [{ ...instance, id: 'bad id' }],
+    [{ ...instance, counts: { ...run.counts, allowed: -1 } }]]) {
+    assert.throws(() => parseRunSnapshot({ ...run, instances }));
+  }
+});

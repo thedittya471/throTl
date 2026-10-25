@@ -1,9 +1,10 @@
+import { readInstances } from './instances.ts';
 import { createServer } from 'node:http';
 import { createApp, readConfig } from './server.ts';
 
 try {
   const { host, port } = readConfig();
-  const app = createApp();
+  const app = createApp({}, readInstances());
   const server = createServer(app);
   server.once('error', (error: NodeJS.ErrnoException) => {
     console.error(`API failed to listen: ${error.code ?? 'UNKNOWN'}`);

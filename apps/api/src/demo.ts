@@ -6,9 +6,10 @@ export type DemoOptions = {
   limit?: number;
   windowMs?: number;
   now?: () => number;
+  instanceId?: string;
 };
 
-export function createDemoRouter({ limit = 100, windowMs = 60_000, now = Date.now }: DemoOptions = {}) {
+export function createDemoRouter({ limit = 100, windowMs = 60_000, now = Date.now, instanceId = 'local' }: DemoOptions = {}) {
   const router = Router();
   const limiter = createFixedWindowLimiter({ limit, windowMs, now });
 
@@ -25,16 +26,16 @@ export function createDemoRouter({ limit = 100, windowMs = 60_000, now = Date.no
 
     // One server-owned key keeps this standalone demo's memory bounded.
     const decision = limiter.check('global');
-    sendFixedWindowDecision(response, decision);
+    sendFixedWindowDecision(response, decision, instanceId);
   });
 
   return router;
 }
 
-export function sendFixedWindowDecision(response: Response, decision: FixedWindowDemoResponse['decision']) {
+export function sendFixedWindowDecision(response: Response, decision: FixedWindowDemoResponse['decision'], instanceId = 'local') {
   response.set({
     'X-RateLab-Algorithm': 'fixed-window',
-    'X-RateLab-Instance': 'local',
+    'X-RateLab-Instance': instanceId,
     'X-RateLab-Decision': decision.allowed ? 'allowed' : 'rejected',
     'X-RateLab-Limit': String(decision.state.limit),
     'X-RateLab-Remaining': String(decision.remaining),
@@ -46,7 +47,7 @@ export function sendFixedWindowDecision(response: Response, decision: FixedWindo
   response.status(decision.allowed ? 200 : 429).json({
     version: CONTRACT_VERSION,
     algorithm: 'fixed-window',
-    instance: 'local',
+    instance: instanceId,
     decision,
   } satisfies FixedWindowDemoResponse);
 }

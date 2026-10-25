@@ -4,7 +4,7 @@ export function createRunTelemetry(now = performance.now.bind(performance)) {
   const startedAt = now();
   const data: RunTelemetry = { evaluated: 0, allowed: 0, rejected: 0, timeline: [], recent: [] };
 
-  function record(decision: FixedWindowDemoResponse['decision']) {
+  function record(decision: FixedWindowDemoResponse['decision'], instance?: string) {
     const elapsedMs = Math.max(0, Math.floor(now() - startedAt));
     const bucketMs = Math.floor(elapsedMs / 1_000) * 1_000;
     const outcome = decision.allowed ? 'allowed' : 'rejected';
@@ -17,7 +17,7 @@ export function createRunTelemetry(now = performance.now.bind(performance)) {
       if (data.timeline.length > MAX_TIMELINE_POINTS) data.timeline.shift();
     }
     point[outcome]++;
-    data.recent.push({ sequence: data.evaluated, elapsedMs, decision });
+    data.recent.push({ sequence: data.evaluated, elapsedMs, decision, ...(instance === undefined ? {} : { instance }) });
     if (data.recent.length > MAX_DECISION_DETAILS) data.recent.shift();
   }
   return { data, record };

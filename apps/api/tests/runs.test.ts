@@ -77,7 +77,7 @@ test('control and target endpoints reject invalid credentials and arbitrary conf
   const { url, headers, config } = await setup(t);
   assert.equal((await fetch(url, { headers })).status, 404);
   assert.equal((await fetch(url, { method: 'DELETE', headers })).status, 404);
-  assert.equal((await fetch(`${url}/target`)).status, 404);
+  assert.equal((await fetch(`${url.replace('/runs', '/internal/runs')}/target`)).status, 404);
   assert.equal((await fetch(url, { method: 'POST' })).status, 403);
   for (const input of [{ ...config, target: 'http://example.com' }, { ...config, limit: 0 }, {}]) {
     assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify(input) })).status, 400);
@@ -87,7 +87,7 @@ test('control and target endpoints reject invalid credentials and arbitrary conf
   assert.equal((await fetch(`${url}?target=http://example.com`, { method: 'POST', headers,
     body: JSON.stringify(config) })).status, 400);
   const started = await (await fetch(url, { method: 'POST', headers, body: JSON.stringify(config) })).json();
-  assert.equal((await fetch(`${url}/target`, { headers: { Authorization: `Bearer ${started.token}` } })).status, 404);
+  assert.equal((await fetch(`${url.replace('/runs', '/internal/runs')}/target`, { headers: { Authorization: `Bearer ${started.token}` } })).status, 404);
 });
 
 test('run admission is bounded and shutdown settles every active run', async (t) => {

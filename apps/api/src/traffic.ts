@@ -1,6 +1,6 @@
 import { Agent, request } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { RunConfig, RunCounts } from '@ratelab/contracts';
+import { parseFixedWindowDecision, type FixedWindowDemoResponse, type RunConfig, type RunCounts } from '@ratelab/contracts';
 
 export function createRunCounts(config: RunConfig): RunCounts {
   return {
@@ -12,11 +12,13 @@ export function createRunCounts(config: RunConfig): RunCounts {
 }
 
 export async function generateTraffic({ config, counts, target, token, signal, onDraining,
-  maxInFlight = 256, timeoutMs = 15_000, canDispatch = () => true,
+  maxInFlight = 256, timeoutMs = 15_000, canDispatch = () => true, targets, onDecision,
 }: {
   config: RunConfig;
   counts: RunCounts;
   target: URL;
+  targets?: { url: URL; id: string; counts: RunCounts }[];
+  onDecision?: (decision: FixedWindowDemoResponse['decision'], instance: string) => void;
   token: string;
   signal: AbortSignal;
   onDraining: () => void;
@@ -29,16 +31,37 @@ export async function generateTraffic({ config, counts, target, token, signal, o
   const startedAt = performance.now();
   let slot = 0;
 
+  let dispatched = 0;
   async function send() {
+    const selected = targets?.[dispatched++ % targets.length];
+    const counters = selected ? [counts, selected.counts] : [counts];
+    if (selected) { selected.counts.scheduled++; selected.counts.dispatched++; selected.counts.inFlight++; }
+    const increment = (key: keyof RunCounts) => { for (const counter of counters) counter[key]++; };
     const deadline = AbortSignal.timeout(timeoutMs);
     try {
       const result = await new Promise<'allowed' | 'rejected' | 'unknownDecision'>((resolve, reject) => {
-        const outgoing = request(target, {
+        const outgoing = request(selected?.url ?? target, {
           agent, headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.any([signal, deadline]),
         }, (response) => {
+          let body = '';
+          response.setEncoding('utf8');
+          response.on('data', (chunk: string) => {
+            if (body.length + chunk.length > 8_192) outgoing.destroy(new Error('TARGET_RESPONSE_TOO_LARGE'));
+            else body += chunk;
+          });
           response.on('error', reject);
           response.on('end', () => {
+            if (onDecision && selected) {
+              try {
+                const evidence = JSON.parse(body) as FixedWindowDemoResponse;
+                if (evidence.instance !== selected.id || evidence.version !== 1 || evidence.algorithm !== 'fixed-window' ||
+                    response.statusCode !== (evidence.decision.allowed ? 200 : 429) ||
+                    response.headers['x-ratelab-decision'] !== (evidence.decision.allowed ? 'allowed' : 'rejected')) throw new Error('INVALID_DECISION');
+                parseFixedWindowDecision(evidence.decision);
+                onDecision(evidence.decision, selected.id);
+              } catch { resolve('unknownDecision'); return; }
+            }
             const decision = response.headers['x-ratelab-decision'];
             resolve(response.statusCode === 200 && decision === 'allowed' ? 'allowed'
               : response.statusCode === 429 && decision === 'rejected' ? 'rejected' : 'unknownDecision');
@@ -48,15 +71,15 @@ export async function generateTraffic({ config, counts, target, token, signal, o
         outgoing.on('error', reject);
         outgoing.end();
       });
-      counts.responseReceived++;
-      counts[result]++;
+      increment('responseReceived');
+      increment(result);
     } catch {
-      counts.unknownDecision++;
-      if (signal.aborted) counts.cancelled++;
-      else if (deadline.aborted) counts.timedOut++;
-      else counts.transportFailed++;
+      increment('unknownDecision');
+      if (signal.aborted) increment('cancelled');
+      else if (deadline.aborted) increment('timedOut');
+      else increment('transportFailed');
     } finally {
-      counts.inFlight--;
+      for (const counter of counters) counter.inFlight--;
     }
   }
 

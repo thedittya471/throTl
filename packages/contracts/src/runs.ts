@@ -56,6 +56,7 @@ export type RunSnapshot = {
   config: RunConfig;
   counts: RunCounts;
   telemetry?: RunTelemetry;
+  instances?: { id: string; counts: RunCounts }[];
 };
 
 export function parseRunSnapshot(input: unknown): RunSnapshot {
@@ -74,7 +75,14 @@ export function parseRunSnapshot(input: unknown): RunSnapshot {
       throw new Error('Invalid run counters');
     }
   }
+  if (run.instances !== undefined && (!Array.isArray(run.instances) || run.instances.length < 1 || run.instances.length > 3 ||
+      new Set(run.instances.map((item) => item.id)).size !== run.instances.length ||
+      run.instances.some((item) => !item || typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,32}$/.test(item.id) ||
+        !item.counts || names.some((key) => !Number.isSafeInteger(item.counts[key]) || item.counts[key] < 0)))) {
+    throw new Error('Invalid run instances');
+  }
   return { version: 1, id: run.id, status: run.status as RunSnapshot['status'],
     config: parseRunConfig(run.config), counts: run.counts,
+    ...(run.instances === undefined ? {} : { instances: run.instances }),
     ...(run.telemetry === undefined ? {} : { telemetry: parseRunTelemetry(run.telemetry) }) };
 }

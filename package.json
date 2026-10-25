@@ -19,6 +19,7 @@
     "typecheck": "npm run build --workspace @ratelab/contracts && npm run typecheck --workspaces",
     "lint": "eslint . --max-warnings 0",
     "build": "npm run build --workspaces",
+    "dev:instances": "npm run build --workspace @ratelab/contracts && node scripts/dev-instances.mjs",
     "dev:api": "npm run build --workspace @ratelab/contracts && npm run dev --workspace @ratelab/api",
     "dev:web": "npm run build --workspace @ratelab/contracts && npm run dev --workspace @ratelab/web",
     "start:web": "npm run start --workspace @ratelab/web"

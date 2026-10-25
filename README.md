@@ -41,10 +41,12 @@ apps/
       index.ts                  # Process startup and shutdown
       server.ts                 # Express app and configuration
       demo.ts                   # Fixed-window HTTP responses
-      runs.ts                   # Run lifecycle and private target routing
+      runs.ts                   # Coordinator lifecycle and peer registration
+      instances.ts              # Validated server-owned instance configuration
+      targets.ts                # Private per-process limiter stores
       traffic.ts                # Bounded steady HTTP generator
       events.ts                 # Bounded SSE snapshots and disconnect grace
-      telemetry.ts              # Target timeline and recent decision evidence
+      telemetry.ts              # Received timeline and recent decision evidence
       limiters/
         fixed-window.ts         # Fixed-window algorithm
         types.ts                # Shared limiter interface
@@ -158,7 +160,7 @@ An allowed request returns 200; a limiter rejection returns 429. Both return `{ 
 | Header | Meaning |
 |---|---|
 | `X-RateLab-Algorithm` | `fixed-window` |
-| `X-RateLab-Instance` | `local`, the standalone demo label |
+| `X-RateLab-Instance` | `INSTANCE_ID` (defaults to `local`) |
 | `X-RateLab-Decision` | `allowed` or `rejected` |
 | `X-RateLab-Limit` | Configured requests per window |
 | `X-RateLab-Remaining` | Integer allowance after this decision; zero is valid on a 200 |
@@ -168,7 +170,7 @@ An allowed request returns 200; a limiter rejection returns 429. Both return `{ 
 
 These application-defined headers are educational metadata. Retry-After is an advisory delay, including a clock rollback gap when present; it does not reserve capacity. Response headers and the JSON explanation use the same engine decision.
 
-Query parameters are rejected with 400 and `DEMO_QUERY_NOT_SUPPORTED`, before consuming allowance. Callers cannot supply client identities, limiter keys, limits, or target URLs. Identity headers do not change the global key. Methods other than GET return 405 with `Allow: GET`, including HEAD so it cannot silently consume allowance. This route accepts no application payload and makes no outbound requests; registered-target selection belongs to the future traffic generator. Server-owned test configuration is validated by the existing limiter factory.
+Query parameters are rejected with 400 and `DEMO_QUERY_NOT_SUPPORTED`, before consuming allowance. Callers cannot supply client identities, limiter keys, limits, or target URLs. Identity headers do not change the global key. Methods other than GET return 405 with `Allow: GET`, including HEAD so it cannot silently consume allowance. This route accepts no application payload and makes no outbound requests; experiment traffic uses the private registered targets described below. Server-owned test configuration is validated by the existing limiter factory.
 
 Focused HTTP integration tests use an injected clock to verify exhaustion and recovery without sleeps:
 
@@ -180,7 +182,7 @@ npm exec --workspace @ratelab/api -- node --test tests/demo.test.ts
 
 Start the API and web app with the setup commands above. In **First experiment**, choose the request rate, duration, fixed-window limit, and window length, then select **Start steady run**. The defaults offer 10 requests/second for 10 seconds against a limit of 5 per 1,000 ms. This produces allowed and rejected requests, with actual counts affected by aligned boundaries and arrival timing. Settings stay fixed during a run. **Stop run** waits for generator cleanup before acknowledging the stop.
 
-This slice uses one synthetic client, one instance, local state, and a global key. Each run owns a fresh limiter; it does not share the standalone `/demo` allowance. The UI consumes live SSE snapshots, shows final totals, and keeps its private control token only in memory. Leaving the component closes its stream; the server stops the run after a 15-second reconnect grace period. Reload recovery is not available yet because the credential is not persisted. If a start response is lost or no stream ever connects, the same grace period stops the unattended run.
+Experiments use one synthetic client, local state, and a global key. The default setup has one target; `dev:instances` routes across three independent API processes. Each run owns a fresh limiter; it does not share the standalone `/demo` allowance. The UI consumes live SSE snapshots, shows final totals, and keeps its private control token only in memory. Leaving the component closes its stream; the server stops the run after a 15-second reconnect grace period. Reload recovery is not available yet because the credential is not persisted. If a start response is lost or no stream ever connects, the same grace period stops the unattended run.
 
 | Setting / budget | Current ceiling |
 |---|---:|
@@ -215,7 +217,7 @@ Control wire contract (all responses disable caching):
 - `DELETE /runs`: stops that run, awaits cleanup, and returns its final snapshot. Repeated stop is safe.
 - API control requests require `X-RateLab-Request: 1`; missing/invalid run credentials return 404. Queries, unknown fields, invalid settings, and oversized JSON are rejected.
 - The Next.js `/api/runs` bridge validates input/output, enforces same-origin mutations, and forwards to server-configured `API_ORIGIN`. Tokens stay in headers and the start response, never URLs.
-- `/runs/target` accepts a separate private generator credential that is never returned to the browser. It uses the same decision-response formatter as `/demo`. The target URL comes only from the API listener's actual socket address and port; incoming Host headers and user-supplied destinations are not used.
+- `/internal/runs/target` accepts a separate private generator credential that is never returned to the browser. It uses the same decision-response formatter as `/demo`. The local target comes from the API listener's socket address and port; optional peers come from server-owned configuration. Incoming Host headers and user-supplied destinations are not used.
 
 Focused tests:
 
@@ -247,18 +249,47 @@ npm exec --workspace @ratelab/web -- node --test tests/api/run-events.test.ts te
 
 Tests cover controlled backpressure, stalled-reader cleanup, stream replacement, heartbeats, terminal delivery, real HTTP reconnect with final counters, relay cancellation, chunk limits, fragmented SSE parsing, and client reconnect. Browser interaction and deployment-proxy behavior have not been verified.
 
+## Three real API processes (Task 09)
+
+Use Node 24.12+ and run these in separate terminals:
+
+```sh
+npm run dev:instances
+npm run dev:web
+```
+
+The launcher starts the same `apps/api/src/index.ts` entry point three times on loopback ports 3001–3003, with IDs `api-1`, `api-2`, and `api-3`. The coordinator on 3001 is also the first target. Next.js keeps its existing `API_ORIGIN=http://127.0.0.1:3001`. Stop an existing single API before starting this command. Restart the launcher after API edits; it does not watch files. Ctrl-C stops all children, and an unexpected child exit shuts down the group. No Docker, Redis, or new dependency is required.
+
+Each run registers fresh independent local limiter state on the three processes. Actual dispatched requests rotate `api-1 → api-2 → api-3`; missed schedule slots do not advance routing. Connection pooling and existing in-flight limits still apply. The UI displays per-instance dispatched, allowed, rejected, transport-failed, and unknown-decision totals. Retained decisions identify their target; the usage meter describes that specific instance's latest received decision, not combined allowance.
+
+For the 3L demonstration, use limit **10**, window **60000 ms**, rate **60 requests/s**, and duration **1000 ms**, with the entire experiment inside one window. At least 30 evenly routed requests can consume all three allowances: 10 per instance, 30 combined. Later arrivals in the same window return 429. A run crossing a window boundary can admit more; the scripted test avoids this boundary. The default single-process command `npm run dev:api` continues to work.
+
+For separately managed API processes, configure these server-side values:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `INSTANCE_ID` | `local` | Distinct 1–32 character alphanumeric/underscore/hyphen ID |
+| `INSTANCE_PEERS` | empty | Exactly two comma-separated HTTP origins on the coordinator; empty on the other targets |
+| `INSTANCE_SECRET` | absent | Shared 64-hex-character registration secret, required with peers |
+
+The launcher generates a fresh secret in memory and does not print it. `GET /instance` reports the ID. `POST /internal/runs` registers a bounded policy/token using the internal secret; `DELETE` removes it. The generator uses a separate per-run random target token; browser capabilities cannot register or call targets. There are at most ten live target entries per process, and abandoned entries expire after duration + 30 seconds (pruned on access). Normal completion, explicit stop, failed setup, and graceful shutdown remove target registrations; unavailable peers rely on expiry. These internal HTTP endpoints are for a trusted local/private network; use appropriate network isolation/TLS before multi-host deployment.
+
+A peer must register successfully before a run starts. Failed setup returns 503 and cleans up partial registration. During a run, an unavailable target stays in rotation: failed connections count as transport failures with unknown decisions, never as 429, and there is no automatic retry or failover. Cleanup requests have three-second deadlines. Run summaries include an additive optional `instances: [{ id, counts }]` field; per-instance scheduled/dispatched counts cover assigned attempts, while missed slots belong to the coordinator totals. Received response bodies are bounded to 8192 characters and validated before evidence enters telemetry.
+
+`npm test` includes a multi-process test that starts three real API entry points, proves exactly 3L across two isolated runs, kills one target, verifies transport accounting, and rejects subsequent setup while that peer is down. Target credential/capacity/cleanup and invalid-response tests cover the trust boundaries. This demonstrates independent processes on one host; it is not a throughput benchmark or proof of independent-host resilience. Shared Redis allowance is Task 10.
+
 ## Learning view (Task 08)
 
-The run view includes an allowed/rejected timeline, a window-usage meter, and a request inspector. All three use real target-side limiter evaluations included in the existing SSE snapshots. There is no chart dependency or separate event queue.
+The run view includes an allowed/rejected timeline, a window-usage meter, and a request inspector. All three use real limiter decisions received in complete, validated HTTP responses and included in the existing SSE snapshots. There is no chart dependency or separate event queue.
 
-- **Timeline:** stacked request counts in one-second elapsed-time intervals. Allowed requests use solid bars; rejections use diagonal hatching. The legend and exact-values table provide text alternatives. Gaps within the displayed time range have no evaluations. At most 120 nonempty intervals are retained; cumulative target totals cover the whole run.
+- **Timeline:** stacked request counts in one-second elapsed-time intervals. Allowed requests use solid bars; rejections use diagonal hatching. The legend and exact-values table provide text alternatives. Gaps within the displayed time range have no received decision evidence. At most 120 nonempty intervals are retained; cumulative evidence totals cover all received decisions.
 - **Window state:** allowance used and remaining at the latest evaluated request, with its reset timestamp in Unix milliseconds. The engine resets lazily on evaluation, so the display is explicitly labelled as observed state rather than a live countdown.
-- **Inspector:** choose a retained request in target arrival order using a native select. It explains admission/rejection, before/after counts, remaining allowance, `[start, end)` window boundaries, raw/effective clocks, rollback clamping, and advisory retry milliseconds. Selection stays on that request while retained; if it leaves the buffer, the inspector shows the newest request.
+- **Inspector:** choose a retained request in response completion order using a native select. It explains admission/rejection, before/after counts, remaining allowance, `[start, end)` window boundaries, raw/effective clocks, rollback clamping, and advisory retry milliseconds. Selection stays on that request while retained; if it leaves the buffer, the inspector shows the newest request.
 - **Detail retention:** each run retains the most recent 50 decisions. The visible indicator says how many evaluated requests are retained and how many older details are omitted. This is a rolling excerpt, not a statistical sample or a full recording policy. Server aggregate counters do not depend on detail retention. Full recording/replay policies remain later tasks.
 
-Target-observed evaluated/allowed/rejected totals are separate from generator-confirmed response totals. A target can evaluate a request whose HTTP response is lost; the learning view does not turn that unknown generator outcome into a confirmed response. Reconnect replaces the timeline and detail arrays instead of appending duplicate history. Server and browser histories share explicit bounds, and complete representative snapshots stay within the SSE parser's 64 KiB event budget.
+The learning view contains received decision evidence. A target can evaluate a request whose response is lost; that evaluation cannot be reconstructed here and remains an unknown decision in generator counters. This is not a target-side audit log. Sequence and elapsed time describe response completion at the coordinator, not arrival order across processes. Reconnect replaces the timeline and detail arrays instead of appending duplicate history. Server and browser histories share explicit bounds, and complete representative snapshots stay within the SSE parser's 64 KiB event budget.
 
-The optional `telemetry` snapshot field contains `{ evaluated, allowed, rejected, timeline, recent }`. A recent item contains `{ sequence, elapsedMs, decision }`; `decision` uses the existing fixed-window evidence shape. Clients validate retention limits, integer counts, bucket/sequence order, and decision evidence. Snapshots without telemetry remain accepted for the earlier contract and show a waiting message.
+The optional `telemetry` snapshot field contains `{ evaluated, allowed, rejected, timeline, recent }`. A recent item contains `{ sequence, elapsedMs, instance, decision }`; `decision` uses the existing fixed-window evidence shape. Clients validate retention limits, integer counts, bucket/sequence order, and decision evidence. Snapshots without telemetry remain accepted for the earlier contract and show a waiting message.
 
 Focused scripted checks:
 

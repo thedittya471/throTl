@@ -99,3 +99,29 @@ test('generator counts capacity misses without dispatching when the global budge
   assert.equal(counts.missedInFlight, 1);
   assert.equal(counts.missed, counts.scheduled);
 });
+
+test('generator treats malformed or oversized target evidence as unknown, without inventing a rejection', async (t) => {
+  let body = '{}';
+  const server = createServer((_request, response) => {
+    response.setHeader('X-RateLab-Decision', 'allowed');
+    response.end(body);
+  });
+  t.after(() => server.close());
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert.ok(address && typeof address !== 'string');
+  const target = new URL(`http://127.0.0.1:${address.port}`);
+  const single = { ...config, durationMs: 100, ratePerSecond: 1 };
+  for (body of ['{}', 'x'.repeat(9_000)]) {
+    const counts = createRunCounts(single);
+    const instanceCounts = createRunCounts(single); instanceCounts.scheduled = 0;
+    let evidence = 0;
+    await generateTraffic({ config: single, counts, target, token: 'test',
+      targets: [{ url: target, id: 'api-1', counts: instanceCounts }], onDecision: () => { evidence++; },
+      signal: new AbortController().signal, onDraining() {} });
+    assert.equal(evidence, 0);
+    assert.equal(counts.allowed + counts.rejected, 0);
+    assert.equal(counts.unknownDecision, 1);
+    assert.equal(instanceCounts.unknownDecision, 1);
+    assert.equal(instanceCounts.inFlight, 0);
+  }
+});

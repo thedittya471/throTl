@@ -29,7 +29,7 @@ export type FixedWindowState = {
 export type FixedWindowDemoResponse = {
   version: typeof CONTRACT_VERSION;
   algorithm: 'fixed-window';
-  instance: 'local';
+  instance: string;
   decision: {
     allowed: boolean;
     reason: 'within_limit' | 'limit_exhausted';
@@ -43,5 +43,5 @@ export type FixedWindowDemoResponse = {
 export { DEFAULT_RUN_CONFIG, parseRunConfig, parseRunSnapshot } from './runs.ts';
 export type { RunConfig, RunCounts, RunSnapshot } from './runs.ts';
 
-export { MAX_TIMELINE_POINTS, MAX_DECISION_DETAILS, parseRunTelemetry } from './telemetry.ts';
+export { MAX_TIMELINE_POINTS, MAX_DECISION_DETAILS, parseRunTelemetry, parseFixedWindowDecision } from './telemetry.ts';
 export type { RunTelemetry, DecisionDetail } from './telemetry.ts';
