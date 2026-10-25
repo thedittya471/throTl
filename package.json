@@ -1,0 +1,29 @@
+{
+  "name": "ratelab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/api"
+  ],
+  "engines": {
+    "node": ">=24.12.0",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @ratelab/api",
+    "start": "npm run start --workspace @ratelab/api",
+    "test": "npm run test --workspace @ratelab/api --",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "eslint . --max-warnings 0",
+    "build": "npm run build --workspaces"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/express": "5.0.6",
+    "@types/node": "24.19.2",
+    "eslint": "10.13.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0"
+  }
+}
