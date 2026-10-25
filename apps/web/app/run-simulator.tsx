@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { ExperimentView } from '../components/experiment-view';
 import { watchRun } from '../lib/run-stream';
 import { DEFAULT_RUN_CONFIG, parseRunConfig, parseRunSnapshot, type RunSnapshot } from '@ratelab/contracts';
 
@@ -102,7 +103,8 @@ export function RunSimulator() {
             ['Unknown decisions', run.counts.unknownDecision],
           ] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
         </dl>
-        <p className="run-note">Missed: {run.counts.missedLate} late, {run.counts.missedInFlight} at capacity, {run.counts.missedCancelled} cancelled before dispatch. Completed attempts include received responses, transport failures, cancellations, and timeouts. Live snapshots replace totals on reconnect. Charts and request details follow in later tasks.</p>
+        <ExperimentView key={run.id} run={run} />
+        <p className="run-note">Missed: {run.counts.missedLate} late, {run.counts.missedInFlight} at capacity, {run.counts.missedCancelled} cancelled before dispatch. Completed attempts include received responses, transport failures, cancellations, and timeouts. Live snapshots replace totals on reconnect.</p>
       </>}
     </section>
   );

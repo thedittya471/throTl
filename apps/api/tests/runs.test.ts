@@ -46,6 +46,11 @@ test('a real steady run completes with isolated allowance and reconciled HTTP co
       run = parseRunSnapshot(await (await fetch(url, { headers: auth })).json());
     }
     assert.equal(run.status, 'completed');
+    assert.ok(run.telemetry);
+    assert.equal(run.telemetry.allowed, run.counts.allowed);
+    assert.equal(run.telemetry.rejected, run.counts.rejected);
+    assert.equal(run.telemetry.evaluated, run.counts.responseReceived);
+    assert.equal(run.telemetry.recent.at(-1)!.decision.state.limit, 1);
     assert.equal(run.counts.allowed, 1);
     assert.ok(run.counts.rejected > 0);
     reconcile(run.counts);

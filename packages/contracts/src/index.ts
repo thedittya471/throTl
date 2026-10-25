@@ -42,3 +42,6 @@ export type FixedWindowDemoResponse = {
 
 export { DEFAULT_RUN_CONFIG, parseRunConfig, parseRunSnapshot } from './runs.ts';
 export type { RunConfig, RunCounts, RunSnapshot } from './runs.ts';
+
+export { MAX_TIMELINE_POINTS, MAX_DECISION_DETAILS, parseRunTelemetry } from './telemetry.ts';
+export type { RunTelemetry, DecisionDetail } from './telemetry.ts';

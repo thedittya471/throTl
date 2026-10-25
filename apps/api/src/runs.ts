@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Router, json, type ErrorRequestHandler } from 'express';
 import { parseRunConfig, type RunSnapshot } from '@ratelab/contracts';
+import { createRunTelemetry } from './telemetry.ts';
 import { createRunEvents } from './events.ts';
 import { sendFixedWindowDecision } from './demo.ts';
 import { createFixedWindowLimiter } from './limiters/fixed-window.ts';
@@ -13,6 +14,7 @@ type Run = {
   limiter: ReturnType<typeof createFixedWindowLimiter>;
   expiresAt: number;
   events: ReturnType<typeof createRunEvents>;
+  telemetry: ReturnType<typeof createRunTelemetry>;
 };
 
 export function createRunRouter(now = Date.now) {
@@ -37,6 +39,7 @@ export function createRunRouter(now = Date.now) {
       return;
     }
     const decision = run.limiter.check('global');
+    run.telemetry.record(decision);
     sendFixedWindowDecision(response, decision);
   });
 
@@ -81,9 +84,10 @@ export function createRunRouter(now = Date.now) {
     const target = new URL(`http://${host}:${port}/runs/target`);
     const token = randomBytes(32).toString('hex');
     const targetToken = `Bearer ${randomBytes(32).toString('hex')}`;
+    const telemetry = createRunTelemetry();
     const snapshot: RunSnapshot = {
       version: 1, id: randomBytes(16).toString('hex'), status: 'running',
-      config, counts: createRunCounts(config),
+      config, counts: createRunCounts(config), telemetry: telemetry.data,
     };
     const controller = new AbortController();
     const events = createRunEvents(snapshot, () => {
@@ -91,7 +95,7 @@ export function createRunRouter(now = Date.now) {
       controller.abort();
     });
     const run: Run = {
-      snapshot, controller, events, done: Promise.resolve(),
+      snapshot, controller, events, telemetry, done: Promise.resolve(),
       limiter: createFixedWindowLimiter({ ...config, now }), expiresAt: Infinity,
     };
     runs.set(`Bearer ${token}`, run);

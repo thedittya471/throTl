@@ -82,3 +82,32 @@ footer { border-top: 1px solid var(--line); padding-top: 16px; display: flex; ju
   .run-fields { grid-template-columns: 1fr; }
   .run-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.experiment-view { margin: 28px 0; padding: 24px; background: var(--surface); border: 1px solid var(--line); }
+.experiment-view h3 { font-size: 18px; font-weight: 500; margin: 0 0 12px; }
+.timeline-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; }
+.traffic-chart { display: block; width: 100%; height: auto; }
+.traffic-chart text { fill: var(--muted); font: 11px Arial, sans-serif; }
+.chart-axis { fill: none; stroke: var(--muted); }
+.chart-allowed { fill: var(--accent); }
+.timeline-table summary { cursor: pointer; padding: 10px 0; font-size: 13px; }
+.timeline-table summary:focus-visible, .decision-inspector select:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.table-scroll { overflow-x: auto; }
+.timeline-table table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.timeline-table caption { text-align: left; color: var(--muted); padding: 12px 0; }
+.timeline-table th, .timeline-table td { padding: 10px; border-bottom: 1px solid var(--line); }
+.window-state, .decision-inspector { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 24px; }
+.window-state label, .decision-inspector label { display: block; font-size: 13px; margin-bottom: 10px; }
+.window-state meter { width: 100%; height: 24px; accent-color: var(--accent); }
+.detail-policy { background: var(--accent-light); padding: 12px; font-size: 13px; line-height: 1.6; }
+.decision-inspector select { max-width: 100%; width: 100%; min-height: 44px; padding: 10px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); font: inherit; font-size: 13px; }
+.decision-inspector h4 { font-size: 15px; margin: 20px 0 10px; }
+.decision-inspector > p { font-size: 13px; line-height: 1.6; }
+.decision-facts { margin: 0; font-size: 13px; }
+.decision-facts > div { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.decision-facts dt { color: var(--muted); }
+.decision-facts dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .experiment-view { padding: 16px; }
+  .decision-facts > div { grid-template-columns: 1fr; gap: 6px; }
+}

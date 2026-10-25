@@ -44,6 +44,7 @@ apps/
       runs.ts                   # Run lifecycle and private target routing
       traffic.ts                # Bounded steady HTTP generator
       events.ts                 # Bounded SSE snapshots and disconnect grace
+      telemetry.ts              # Target timeline and recent decision evidence
       limiters/
         fixed-window.ts         # Fixed-window algorithm
         types.ts                # Shared limiter interface
@@ -53,6 +54,7 @@ apps/
       runs.test.ts
       traffic.test.ts
       events.test.ts
+      telemetry.test.ts
       limiters/
         fixed-window.test.ts
   web/
@@ -65,18 +67,25 @@ apps/
       globals.css
       layout.tsx
       page.tsx
+    components/
+      experiment-view.tsx       # Timeline and latest window state
+      decision-inspector.tsx    # Selected request explanation
     lib/run-stream.ts           # SSE parsing and reconnects
+    lib/timeline.ts             # Chart geometry with explicit units
     tests/
       api/health.test.ts
       api/runs.test.ts
       api/run-events.test.ts
       lib/run-stream.test.ts
+      lib/timeline.test.ts
 packages/
   contracts/
     src/index.ts                # Shared API exports
     src/runs.ts                 # Run configuration and snapshot validation
+    src/telemetry.ts            # Bounded decision/timeline contract
     tests/index.test.ts
     tests/runs.test.ts
+    tests/telemetry.test.ts
 ```
 
 All workspace test commands discover `tests/**/*.test.ts`. Type checking covers source and tests; API and contracts production builds include only `src/`. Next.js uses `app/` for its application entry points.
@@ -227,7 +236,7 @@ npm exec --workspace @ratelab/web -- node --test tests/api/runs.test.ts
 - A 15-second grace period begins on run creation and after stream disconnect. Attaching a stream clears it; expiry cancels the run through the existing cleanup path. Completion and shutdown clear stream timers/listeners.
 - The client retries disconnected streams after one second, detects a connection with no snapshots for 15 seconds, and retains a bounded 140-second watch lifetime. Invalid or expired credentials end retries. The parser bounds unfinished events and validates snapshots with the shared contract.
 
-This task streams aggregate snapshots only. Request detail batches, recording/sampling indicators, and charts arrive with their corresponding later tasks. Aggregate counters remain independent of stream speed or missing updates. An in-memory credential supports reconnect within the current page; it does not provide reload recovery.
+Task 08 adds bounded timeline and recent-decision telemetry to these same replacement snapshots; full recording policies remain later work. Aggregate counters remain independent of stream speed or missing updates. An in-memory credential supports reconnect within the current page; it does not provide reload recovery.
 
 Focused scripted checks:
 
@@ -237,6 +246,29 @@ npm exec --workspace @ratelab/web -- node --test tests/api/run-events.test.ts te
 ```
 
 Tests cover controlled backpressure, stalled-reader cleanup, stream replacement, heartbeats, terminal delivery, real HTTP reconnect with final counters, relay cancellation, chunk limits, fragmented SSE parsing, and client reconnect. Browser interaction and deployment-proxy behavior have not been verified.
+
+## Learning view (Task 08)
+
+The run view includes an allowed/rejected timeline, a window-usage meter, and a request inspector. All three use real target-side limiter evaluations included in the existing SSE snapshots. There is no chart dependency or separate event queue.
+
+- **Timeline:** stacked request counts in one-second elapsed-time intervals. Allowed requests use solid bars; rejections use diagonal hatching. The legend and exact-values table provide text alternatives. Gaps within the displayed time range have no evaluations. At most 120 nonempty intervals are retained; cumulative target totals cover the whole run.
+- **Window state:** allowance used and remaining at the latest evaluated request, with its reset timestamp in Unix milliseconds. The engine resets lazily on evaluation, so the display is explicitly labelled as observed state rather than a live countdown.
+- **Inspector:** choose a retained request in target arrival order using a native select. It explains admission/rejection, before/after counts, remaining allowance, `[start, end)` window boundaries, raw/effective clocks, rollback clamping, and advisory retry milliseconds. Selection stays on that request while retained; if it leaves the buffer, the inspector shows the newest request.
+- **Detail retention:** each run retains the most recent 50 decisions. The visible indicator says how many evaluated requests are retained and how many older details are omitted. This is a rolling excerpt, not a statistical sample or a full recording policy. Server aggregate counters do not depend on detail retention. Full recording/replay policies remain later tasks.
+
+Target-observed evaluated/allowed/rejected totals are separate from generator-confirmed response totals. A target can evaluate a request whose HTTP response is lost; the learning view does not turn that unknown generator outcome into a confirmed response. Reconnect replaces the timeline and detail arrays instead of appending duplicate history. Server and browser histories share explicit bounds, and complete representative snapshots stay within the SSE parser's 64 KiB event budget.
+
+The optional `telemetry` snapshot field contains `{ evaluated, allowed, rejected, timeline, recent }`. A recent item contains `{ sequence, elapsedMs, decision }`; `decision` uses the existing fixed-window evidence shape. Clients validate retention limits, integer counts, bucket/sequence order, and decision evidence. Snapshots without telemetry remain accepted for the earlier contract and show a waiting message.
+
+Focused scripted checks:
+
+```sh
+npm exec --workspace @ratelab/api -- node --test tests/telemetry.test.ts tests/runs.test.ts
+npm exec --workspace @ratelab/contracts -- node --test tests/telemetry.test.ts
+npm exec --workspace @ratelab/web -- node --test tests/lib/timeline.test.ts
+```
+
+Tests cover deterministic exhaustion/reset, bounded history with exact aggregate counts, event size, HTTP telemetry integration, malformed evidence, and chart scaling/gaps/empty data. Browser rendering, keyboard interaction, and visual performance have not been checked, per the requested testing scope.
 
 ## Verification and production build
 

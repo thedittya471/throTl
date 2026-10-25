@@ -1,3 +1,5 @@
+import { parseRunTelemetry, type RunTelemetry } from './telemetry.ts';
+
 export type RunConfig = {
   durationMs: number;
   ratePerSecond: number;
@@ -53,6 +55,7 @@ export type RunSnapshot = {
   status: 'running' | 'draining' | 'stopping' | 'completed' | 'stopped';
   config: RunConfig;
   counts: RunCounts;
+  telemetry?: RunTelemetry;
 };
 
 export function parseRunSnapshot(input: unknown): RunSnapshot {
@@ -72,5 +75,6 @@ export function parseRunSnapshot(input: unknown): RunSnapshot {
     }
   }
   return { version: 1, id: run.id, status: run.status as RunSnapshot['status'],
-    config: parseRunConfig(run.config), counts: run.counts };
+    config: parseRunConfig(run.config), counts: run.counts,
+    ...(run.telemetry === undefined ? {} : { telemetry: parseRunTelemetry(run.telemetry) }) };
 }

@@ -1,6 +1,6 @@
 # RateLab experiment specification
 
-Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–07 implement the local fixed-window experiment described below.
+Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–08 implement the local fixed-window experiment described below.
 
 The interview requirements below are agreed. Rules labeled **Proposed** are concrete defaults prepared for review, not previously approved product decisions. After review, this document becomes the behavior contract for implementation and tests. Hosting selection and capacity promises remain deferred.
 
@@ -202,11 +202,19 @@ Scheduled slots are `ceil(durationMs * ratePerSecond / 1000)` at offsets startin
 
 ## Implemented bounded streams (Task 07)
 
-`GET /runs/events` requires the existing bearer capability and control header; the Next.js `/api/runs/events` relay forwards these headers to the configured API. The wire message is `event: snapshot` with one JSON `RunSnapshot` data value. Initial and terminal snapshots are immediate; intermediate aggregate snapshots are emitted at 5 Hz. Heartbeat comments occur every ten seconds. Reconnect replaces cumulative totals from current state, without replay or addition. This slice adds no per-request event buffers or detail batches.
+`GET /runs/events` requires the existing bearer capability and control header; the Next.js `/api/runs/events` relay forwards these headers to the configured API. The wire message is `event: snapshot` with one JSON `RunSnapshot` data value. Initial and terminal snapshots are immediate; intermediate aggregate snapshots are emitted at 5 Hz. Heartbeat comments occur every ten seconds. Reconnect replaces cumulative totals from current state, without replay or addition. Task 08 extends snapshots with bounded recent-decision evidence and aggregate timeline intervals; it does not add a queued per-request delivery stream.
 
 A run retains one stream. Replacement closes the older connection. Failed writes pause production until drain, then serialize only current state. A five-second stalled-reader deadline and 256 KiB pending-output budget bound slow consumers. Terminal backpressure may close a connection before the final snapshot arrives; reconnect retrieves the retained final state. The relay pulls only on downstream demand and cancels upstream reads on cancellation. Client parsing bounds event/chunk size and validates the existing snapshot contract.
 
 A 15-second grace deadline begins at creation and after disconnect. A new authorized stream cancels it; expiry aborts traffic through normal cleanup. Natural completion, explicit stop, retention cleanup, and process shutdown clear stream resources. The UI retries dropped connections after one second and replaces totals. Tokens remain in memory/headers, never query parameters. Page reload recovery is not implemented. Verification is scripted HTTP, controlled backpressure, relay, and client-parser testing; browser testing is excluded by user instruction.
+
+## Implemented learning view (Task 08)
+
+Snapshots may now include `telemetry`: target-observed `evaluated`, `allowed`, `rejected`, a rolling timeline of at most 120 nonempty one-second intervals, and the most recent 50 decision records. A record's sequence denotes target arrival order, its elapsed time uses the run's monotonic observation clock, and its decision is the actual limiter result. Aggregate totals are never sampled or decremented when history is evicted. A visible UI indicator reports omitted older details and identifies the recent excerpt as non-statistical. Complete/sampled recording policies remain Task 18.
+
+The SVG timeline has seconds and request-count units, solid/hatch legend encodings, and an exact table. Window usage is state at the latest decision, including remaining allowance and reset Unix milliseconds, not an inferred countdown. A native request selector exposes before/after state, `[start, end)` boundaries, raw/effective clocks, clamp status, reason, and retry delay. Target observations remain separate from generator-confirmed HTTP outcomes. Reconnect replaces bounded arrays; it does not append duplicate records. Shared validation bounds histories and checks integer evidence/order. The optional field preserves the earlier snapshot contract.
+
+Scripted verification covers deterministic exhaustion/reset, bounded retention, whole-run aggregate correctness, snapshot size, actual HTTP snapshots, invalid telemetry, and chart geometry. Browser/keyboard/visual verification is explicitly excluded for this task.
 
 ## 9. Task 01 completion and review
 
