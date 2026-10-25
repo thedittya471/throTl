@@ -43,6 +43,7 @@ apps/
       demo.ts                   # Fixed-window HTTP responses
       runs.ts                   # Run lifecycle and private target routing
       traffic.ts                # Bounded steady HTTP generator
+      events.ts                 # Bounded SSE snapshots and disconnect grace
       limiters/
         fixed-window.ts         # Fixed-window algorithm
         types.ts                # Shared limiter interface
@@ -51,20 +52,25 @@ apps/
       demo.test.ts
       runs.test.ts
       traffic.test.ts
+      events.test.ts
       limiters/
         fixed-window.test.ts
   web/
     app/                        # Next.js pages, UI, and route handlers
       api/health/route.ts
       api/runs/route.ts
+      api/runs/events/route.ts
       run-simulator.tsx
       connection-status.tsx
       globals.css
       layout.tsx
       page.tsx
+    lib/run-stream.ts           # SSE parsing and reconnects
     tests/
       api/health.test.ts
       api/runs.test.ts
+      api/run-events.test.ts
+      lib/run-stream.test.ts
 packages/
   contracts/
     src/index.ts                # Shared API exports
@@ -165,7 +171,7 @@ npm exec --workspace @ratelab/api -- node --test tests/demo.test.ts
 
 Start the API and web app with the setup commands above. In **First experiment**, choose the request rate, duration, fixed-window limit, and window length, then select **Start steady run**. The defaults offer 10 requests/second for 10 seconds against a limit of 5 per 1,000 ms. This produces allowed and rejected requests, with actual counts affected by aligned boundaries and arrival timing. Settings stay fixed during a run. **Stop run** waits for generator cleanup before acknowledging the stop.
 
-This slice uses one synthetic client, one instance, local state, and a global key. Each run owns a fresh limiter; it does not share the standalone `/demo` allowance. The UI polls every 500 ms, shows final totals, and keeps its private control token only in memory. Leaving the component attempts a best-effort stop. Reload recovery and disconnect grace are not available yet; if a stop or start response is lost, remaining work is still bounded by duration and request deadlines. SSE follows in Task 07.
+This slice uses one synthetic client, one instance, local state, and a global key. Each run owns a fresh limiter; it does not share the standalone `/demo` allowance. The UI consumes live SSE snapshots, shows final totals, and keeps its private control token only in memory. Leaving the component closes its stream; the server stops the run after a 15-second reconnect grace period. Reload recovery is not available yet because the credential is not persisted. If a start response is lost or no stream ever connects, the same grace period stops the unattended run.
 
 | Setting / budget | Current ceiling |
 |---|---:|
@@ -208,6 +214,29 @@ Focused tests:
 npm exec --workspace @ratelab/api -- node --test tests/runs.test.ts tests/traffic.test.ts
 npm exec --workspace @ratelab/web -- node --test tests/api/runs.test.ts
 ```
+
+## Live run streams (Task 07)
+
+`GET /runs/events` streams `event: snapshot` messages whose JSON `data` is the existing versioned `RunSnapshot`. API callers send `Authorization: Bearer <token>` and `X-RateLab-Request: 1`. The UI uses the authenticated same-origin `/api/runs/events` relay with fetch streaming, so the credential stays in a header rather than a URL. Status and Stop retain their existing REST contracts.
+
+- The stream sends the current snapshot immediately, then refreshes aggregate totals every 200 ms (5 Hz). Terminal status is sent immediately and closes the stream.
+- Each snapshot replaces the UI's totals. Reconnect starts from the current server state; events are not added to previous counts, and old event history is not replayed.
+- Only one stream may be attached per run. A replacement closes the previous connection. A completed run can reconnect to retrieve one final snapshot.
+- When a write applies backpressure, periodic snapshots are skipped until drain; the next write uses the newest totals. There is no per-request event queue. Pending Node output is capped at 256 KiB, and a reader stalled for five seconds is disconnected. A final snapshot that cannot drain can be recovered by reconnecting.
+- Heartbeat comments are included every ten seconds. Streams disable caching/transformation and send `X-Accel-Buffering: no`. The Next.js relay reads on downstream demand, bounds individual chunks to 256 KiB, and cancels upstream work when canceled.
+- A 15-second grace period begins on run creation and after stream disconnect. Attaching a stream clears it; expiry cancels the run through the existing cleanup path. Completion and shutdown clear stream timers/listeners.
+- The client retries disconnected streams after one second, detects a connection with no snapshots for 15 seconds, and retains a bounded 140-second watch lifetime. Invalid or expired credentials end retries. The parser bounds unfinished events and validates snapshots with the shared contract.
+
+This task streams aggregate snapshots only. Request detail batches, recording/sampling indicators, and charts arrive with their corresponding later tasks. Aggregate counters remain independent of stream speed or missing updates. An in-memory credential supports reconnect within the current page; it does not provide reload recovery.
+
+Focused scripted checks:
+
+```sh
+npm exec --workspace @ratelab/api -- node --test tests/events.test.ts tests/runs.test.ts
+npm exec --workspace @ratelab/web -- node --test tests/api/run-events.test.ts tests/lib/run-stream.test.ts
+```
+
+Tests cover controlled backpressure, stalled-reader cleanup, stream replacement, heartbeats, terminal delivery, real HTTP reconnect with final counters, relay cancellation, chunk limits, fragmented SSE parsing, and client reconnect. Browser interaction and deployment-proxy behavior have not been verified.
 
 ## Verification and production build
 

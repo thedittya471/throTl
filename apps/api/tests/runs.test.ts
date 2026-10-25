@@ -106,3 +106,25 @@ test('run admission is bounded and shutdown settles every active run', async (t)
     reconcile(run.counts);
   }
 });
+
+test('authenticated SSE reconnects with current totals and delivers the final reconciled snapshot', async (t) => {
+  const { url, headers, start } = await setup(t);
+  assert.equal((await fetch(`${url}/events`, { headers })).status, 404);
+  const started = await (await start()).json();
+  const auth = { ...headers, Authorization: `Bearer ${started.token}` };
+  const first = await fetch(`${url}/events`, { headers: auth });
+  assert.match(first.headers.get('content-type') ?? '', /text\/event-stream/);
+  const reader = first.body!.getReader();
+  const initial = new TextDecoder().decode((await reader.read()).value);
+  const initialRun = parseRunSnapshot(JSON.parse(initial.split('data: ')[1]!));
+  await reader.cancel();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const second = await fetch(`${url}/events`, { headers: auth });
+  const frames = (await second.text()).split('\n\n').filter((frame) => frame.startsWith('event: snapshot'));
+  const snapshots = frames.map((frame) => parseRunSnapshot(JSON.parse(frame.split('data: ')[1]!)));
+  assert.ok(snapshots[0]!.counts.dispatched >= initialRun.counts.dispatched);
+  const final = snapshots.at(-1)!;
+  assert.equal(final.status, 'completed');
+  reconcile(final.counts);
+  assert.deepEqual(await (await fetch(url, { headers: auth })).json(), final);
+});

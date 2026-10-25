@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { watchRun } from '../lib/run-stream';
 import { DEFAULT_RUN_CONFIG, parseRunConfig, parseRunSnapshot, type RunSnapshot } from '@ratelab/contracts';
 
 const fields = [
@@ -20,38 +21,15 @@ export function RunSimulator() {
   useEffect(() => {
     if (!token) return;
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    let finished = false;
-    const expiresAt = Date.now() + 140_000;
-    const headers = { Authorization: `Bearer ${token}` };
-    async function poll() {
-      try {
-        const response = await fetch('/api/runs', { headers, cache: 'no-store',
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]) });
-        if (!response.ok) throw new Error('Unable to read the run. You can retry Stop.');
-        const snapshot = parseRunSnapshot(await response.json());
-        if (controller.signal.aborted) return;
-        // An earlier status request must not overwrite an acknowledged Stop.
-        setRun((previous) => previous?.id !== snapshot.id || previous.status === 'stopped' ? previous : snapshot);
-        setError('');
-        finished = ['completed', 'stopped'].includes(snapshot.status);
-      } catch {
-        if (controller.signal.aborted) return;
-        setError('Run status is unavailable. Check the API, then use Stop to settle the run.');
-      }
-      if (!finished && !controller.signal.aborted && Date.now() < expiresAt) {
-        timer = setTimeout(poll, 500);
-      }
-    }
-    timer = setTimeout(poll, 250);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-      // shortcut: page-exit stop is best effort; add disconnect grace with the stream lifecycle.
-      if (!finished) {
-        void fetch('/api/runs', { method: 'DELETE', headers, keepalive: true }).catch(() => {});
-      }
-    };
+    void watchRun(token, AbortSignal.any([controller.signal, AbortSignal.timeout(140_000)]), (snapshot) => {
+      if (controller.signal.aborted) return;
+      // Reconnect snapshots replace totals; old streams cannot overwrite a new or stopped run.
+      setRun((previous) => previous?.id !== snapshot.id || previous.status === 'stopped' ? previous : snapshot);
+      setError('');
+    }, (connected) => {
+      if (!controller.signal.aborted) setError(connected ? '' : 'Stream disconnected. Reconnecting; the run stops after 15 seconds without a stream.');
+    });
+    return () => controller.abort();
   }, [token]);
 
   async function start(event: FormEvent<HTMLFormElement>) {
@@ -124,7 +102,7 @@ export function RunSimulator() {
             ['Unknown decisions', run.counts.unknownDecision],
           ] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
         </dl>
-        <p className="run-note">Missed: {run.counts.missedLate} late, {run.counts.missedInFlight} at capacity, {run.counts.missedCancelled} cancelled before dispatch. Completed attempts include received responses, transport failures, cancellations, and timeouts. Polling refreshes totals; charts and streaming follow in later tasks.</p>
+        <p className="run-note">Missed: {run.counts.missedLate} late, {run.counts.missedInFlight} at capacity, {run.counts.missedCancelled} cancelled before dispatch. Completed attempts include received responses, transport failures, cancellations, and timeouts. Live snapshots replace totals on reconnect. Charts and request details follow in later tasks.</p>
       </>}
     </section>
   );

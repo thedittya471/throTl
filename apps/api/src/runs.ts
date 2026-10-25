@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Router, json, type ErrorRequestHandler } from 'express';
 import { parseRunConfig, type RunSnapshot } from '@ratelab/contracts';
+import { createRunEvents } from './events.ts';
 import { sendFixedWindowDecision } from './demo.ts';
 import { createFixedWindowLimiter } from './limiters/fixed-window.ts';
 import { createRunCounts, generateTraffic } from './traffic.ts';
@@ -11,6 +12,7 @@ type Run = {
   done: Promise<void>;
   limiter: ReturnType<typeof createFixedWindowLimiter>;
   expiresAt: number;
+  events: ReturnType<typeof createRunEvents>;
 };
 
 export function createRunRouter(now = Date.now) {
@@ -22,7 +24,7 @@ export function createRunRouter(now = Date.now) {
   router.use((_request, response, next) => {
     response.set('Cache-Control', 'no-store');
     for (const [token, run] of runs) {
-      if (run.expiresAt <= Date.now()) runs.delete(token);
+      if (run.expiresAt <= Date.now()) { run.events.close(); runs.delete(token); }
     }
     next();
   });
@@ -48,6 +50,12 @@ export function createRunRouter(now = Date.now) {
       return;
     }
     next();
+  });
+
+  router.get('/events', (request, response) => {
+    const run = runs.get(request.get('Authorization') ?? '');
+    if (!run) response.status(404).json({ error: 'RUN_NOT_FOUND' });
+    else run.events.connect(response);
   });
 
   router.post('/', json({ limit: '1kb' }), (request, response) => {
@@ -77,8 +85,13 @@ export function createRunRouter(now = Date.now) {
       version: 1, id: randomBytes(16).toString('hex'), status: 'running',
       config, counts: createRunCounts(config),
     };
+    const controller = new AbortController();
+    const events = createRunEvents(snapshot, () => {
+      snapshot.status = 'stopping';
+      controller.abort();
+    });
     const run: Run = {
-      snapshot, controller: new AbortController(), done: Promise.resolve(),
+      snapshot, controller, events, done: Promise.resolve(),
       limiter: createFixedWindowLimiter({ ...config, now }), expiresAt: Infinity,
     };
     runs.set(`Bearer ${token}`, run);
@@ -91,6 +104,7 @@ export function createRunRouter(now = Date.now) {
       snapshot.status = run.controller.signal.aborted ? 'stopped' : 'completed';
       targets.delete(targetToken);
       run.expiresAt = Date.now() + 10 * 60_000;
+      events.finish();
     });
     response.status(201).json({ run: snapshot, token });
   });
@@ -126,6 +140,7 @@ export function createRunRouter(now = Date.now) {
     closing = true;
     for (const run of runs.values()) run.controller.abort();
     await Promise.all([...runs.values()].map((run) => run.done));
+    for (const run of runs.values()) run.events.close();
   }
   return { router, shutdown };
 }

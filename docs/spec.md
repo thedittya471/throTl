@@ -1,6 +1,6 @@
 # RateLab experiment specification
 
-Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–06 implement the local fixed-window experiment described below.
+Status: Task 01 specification draft; proposed full-system behavior remains reviewable. Tasks 02–07 implement the local fixed-window experiment described below.
 
 The interview requirements below are agreed. Rules labeled **Proposed** are concrete defaults prepared for review, not previously approved product decisions. After review, this document becomes the behavior contract for implementation and tests. Hosting selection and capacity promises remain deferred.
 
@@ -198,7 +198,15 @@ The initial run supports steady traffic, one client, one local instance, and a g
 
 Runs move from running to draining to completed, or through stopping to stopped. Stop is idempotent and returns after all generator tasks settle. Process shutdown cancels runs before closing the listener. The generator uses monotonic time, keep-alive HTTP, at most 256 in-flight requests per run and 2,048 total, a 15-second total request deadline, and 100 ms lateness tolerance. Aggregate admission is capped at 10 active runs / 5,000 offered requests per second; 20 snapshots are retained for 10 minutes after settlement with lazy expiry. These budgets do not establish achieved throughput.
 
-Scheduled slots are `ceil(durationMs * ratePerSecond / 1000)` at offsets starting at zero and strictly before duration end. Missed slots record lateness, in-flight budget, or cancellation. UI completed attempts are `dispatched - inFlight`; final counter identities follow Section 4. Incomplete/failed transport outcomes are unknown decisions, not 429. The UI polls status and shows final totals; unmount attempts a best-effort stop. Reload recovery, disconnect grace, and guaranteed delivery of a start/stop response are not part of this slice; disconnected work remains duration/deadline bounded. Browser tests were explicitly excluded by the user for this task.
+Scheduled slots are `ceil(durationMs * ratePerSecond / 1000)` at offsets starting at zero and strictly before duration end. Missed slots record lateness, in-flight budget, or cancellation. UI completed attempts are `dispatched - inFlight`; final counter identities follow Section 4. Incomplete/failed transport outcomes are unknown decisions, not 429. The UI now consumes Task 07 aggregate SSE snapshots and shows final totals. Disconnect grace stops unattended runs after 15 seconds; page reload recovery and guaranteed delivery of a start/stop response remain unavailable. Browser tests were explicitly excluded by the user for this task.
+
+## Implemented bounded streams (Task 07)
+
+`GET /runs/events` requires the existing bearer capability and control header; the Next.js `/api/runs/events` relay forwards these headers to the configured API. The wire message is `event: snapshot` with one JSON `RunSnapshot` data value. Initial and terminal snapshots are immediate; intermediate aggregate snapshots are emitted at 5 Hz. Heartbeat comments occur every ten seconds. Reconnect replaces cumulative totals from current state, without replay or addition. This slice adds no per-request event buffers or detail batches.
+
+A run retains one stream. Replacement closes the older connection. Failed writes pause production until drain, then serialize only current state. A five-second stalled-reader deadline and 256 KiB pending-output budget bound slow consumers. Terminal backpressure may close a connection before the final snapshot arrives; reconnect retrieves the retained final state. The relay pulls only on downstream demand and cancels upstream reads on cancellation. Client parsing bounds event/chunk size and validates the existing snapshot contract.
+
+A 15-second grace deadline begins at creation and after disconnect. A new authorized stream cancels it; expiry aborts traffic through normal cleanup. Natural completion, explicit stop, retention cleanup, and process shutdown clear stream resources. The UI retries dropped connections after one second and replaces totals. Tokens remain in memory/headers, never query parameters. Page reload recovery is not implemented. Verification is scripted HTTP, controlled backpressure, relay, and client-parser testing; browser testing is excluded by user instruction.
 
 ## 9. Task 01 completion and review
 
