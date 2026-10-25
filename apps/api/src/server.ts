@@ -1,3 +1,4 @@
+import { CONTRACT_VERSION, type HealthResponse } from '@ratelab/contracts';
 import { isIP } from 'node:net';
 import express from 'express';
 
@@ -19,7 +20,9 @@ export function createApp() {
   const app = express();
   app.disable('x-powered-by');
   app.get('/health', (_request, response) => {
-    response.set('Cache-Control', 'no-store').json({ status: 'ok', service: 'ratelab-api' });
+    response.set('Cache-Control', 'no-store').json({
+      version: CONTRACT_VERSION, status: 'ok', service: 'ratelab-api',
+    } satisfies HealthResponse);
   });
   return app;
 }

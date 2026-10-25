@@ -48,7 +48,7 @@ test('health endpoint returns JSON without exposing configuration', async (t) =>
   assert.match(response.headers.get('content-type') ?? '', /application\/json/);
   assert.equal(response.headers.get('x-powered-by'), null);
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await response.json(), { status: 'ok', service: 'ratelab-api' });
+  assert.deepEqual(await response.json(), { version: 1, status: 'ok', service: 'ratelab-api' });
 });
 
 

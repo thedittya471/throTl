@@ -4,25 +4,34 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/api"
+    "packages/contracts",
+    "apps/api",
+    "apps/web"
   ],
   "engines": {
     "node": ">=24.12.0",
     "npm": ">=11"
   },
   "scripts": {
-    "dev": "npm run dev --workspace @ratelab/api",
+    "dev": "npm run dev:api",
     "start": "npm run start --workspace @ratelab/api",
-    "test": "npm run test --workspace @ratelab/api --",
-    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run build --workspace @ratelab/contracts && npm run test --workspaces --if-present",
+    "typecheck": "npm run build --workspace @ratelab/contracts && npm run typecheck --workspaces",
     "lint": "eslint . --max-warnings 0",
-    "build": "npm run build --workspaces"
+    "build": "npm run build --workspaces",
+    "dev:api": "npm run build --workspace @ratelab/contracts && npm run dev --workspace @ratelab/api",
+    "dev:web": "npm run build --workspace @ratelab/contracts && npm run dev --workspace @ratelab/web",
+    "start:web": "npm run start --workspace @ratelab/web"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@next/eslint-plugin-next": "16.4.3",
     "@types/express": "5.0.6",
     "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.0"
   }
