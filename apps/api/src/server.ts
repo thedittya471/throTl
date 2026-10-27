@@ -15,28 +15,72 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   if (host !== 'localhost' && isIP(host) === 0) {
     throw new Error('HOST must be an IP address or localhost');
   }
-  if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65535) {
+
+  if (
+    !/^\d+$/.test(rawPort) ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  ) {
     throw new Error('PORT must be an integer between 1 and 65535');
   }
+
   return { host, port };
 }
 
-export function createApp(demoOptions: DemoOptions = {}, instances: InstanceOptions = { instanceId: 'local', peers: [] }, shared?: SharedWindowStore) {
+export function createApp(
+  demoOptions: DemoOptions = {},
+  instances: InstanceOptions = { instanceId: 'local', peers: [] },
+  sharedStore?: SharedWindowStore,
+) {
   const app = express();
+
   app.disable('x-powered-by');
+
   app.get('/health', (_request, response) => {
-    response.set('Cache-Control', 'no-store').json({
-      version: CONTRACT_VERSION, status: 'ok', service: 'ratelab-api',
+    response.set('Cache-Control', 'no-store');
+
+    response.json({
+      version: CONTRACT_VERSION,
+      status: 'ok',
+      service: 'ratelab-api',
     } satisfies HealthResponse);
   });
-  app.use('/demo', createDemoRouter({ ...demoOptions, instanceId: instances.instanceId }));
-  app.get('/instance', (_request, response) => response.set('Cache-Control', 'no-store').json({ instanceId: instances.instanceId }));
-  const targets = createTargets(instances.instanceId, instances.secret, demoOptions.now, shared);
+
+  const demoRouter = createDemoRouter({
+    ...demoOptions,
+    instanceId: instances.instanceId,
+  });
+
+  app.use('/demo', demoRouter);
+
+  app.get('/instance', (_request, response) => {
+    response.set('Cache-Control', 'no-store');
+
+    return response.json({ instanceId: instances.instanceId });
+  });
+
+  const targets = createTargets(
+    instances.instanceId,
+    instances.secret,
+    demoOptions.now,
+    sharedStore,
+  );
+
   app.use('/internal/runs', targets.router);
+
   const runs = createRunRouter(instances, targets);
+
   app.use('/runs', runs.router);
+
   app.locals.stopRuns = async () => {
-    try { await runs.shutdown(); } finally { shared?.close(); }
+    try {
+      await runs.shutdown();
+    } finally {
+      // Close shared storage even if run cleanup fails.
+      sharedStore?.close();
+    }
   };
+
   return app;
 }

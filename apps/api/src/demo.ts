@@ -9,16 +9,24 @@ export type DemoOptions = {
   instanceId?: string;
 };
 
-export function createDemoRouter({ limit = 100, windowMs = 60_000, now = Date.now, instanceId = 'local' }: DemoOptions = {}) {
+export function createDemoRouter({
+  limit = 100,
+  windowMs = 60_000,
+  now = Date.now,
+  instanceId = 'local',
+}: DemoOptions = {}) {
   const router = Router();
   const limiter = createFixedWindowLimiter({ limit, windowMs, now });
 
   router.all('/', (request, response) => {
     response.set('Cache-Control', 'no-store');
+
     if (request.method !== 'GET') {
-      response.set('Allow', 'GET').status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+      response.set('Allow', 'GET');
+      response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
       return;
     }
+
     if (request.originalUrl.includes('?')) {
       response.status(400).json({ error: 'DEMO_QUERY_NOT_SUPPORTED' });
       return;
@@ -26,13 +34,18 @@ export function createDemoRouter({ limit = 100, windowMs = 60_000, now = Date.no
 
     // One server-owned key keeps this standalone demo's memory bounded.
     const decision = limiter.check('global');
+
     sendFixedWindowDecision(response, decision, instanceId);
   });
 
   return router;
 }
 
-export function sendFixedWindowDecision(response: Response, decision: FixedWindowDemoResponse['decision'], instanceId = 'local') {
+export function sendFixedWindowDecision(
+  response: Response,
+  decision: FixedWindowDemoResponse['decision'],
+  instanceId = 'local',
+) {
   response.set({
     'X-RateLab-Algorithm': 'fixed-window',
     'X-RateLab-Instance': instanceId,
@@ -41,10 +54,19 @@ export function sendFixedWindowDecision(response: Response, decision: FixedWindo
     'X-RateLab-Remaining': String(decision.remaining),
     'X-RateLab-Reset-Ms': String(decision.resetAtMs),
   });
+
   if (!decision.allowed) {
-    response.set('Retry-After', String(Math.max(1, Math.ceil(decision.retryAfterMs / 1_000))));
+    const retryAfterSeconds = Math.ceil(decision.retryAfterMs / 1_000);
+    const retryAfter = Math.max(1, retryAfterSeconds);
+
+    response.set('Retry-After', String(retryAfter));
   }
-  response.status(decision.allowed ? 200 : 429).json({
+
+  const statusCode = decision.allowed ? 200 : 429;
+
+  response.status(statusCode);
+
+  response.json({
     version: CONTRACT_VERSION,
     algorithm: 'fixed-window',
     instance: instanceId,

@@ -21,6 +21,7 @@ export function createFixedWindowLimiter({
   if (!Number.isSafeInteger(limit) || limit <= 0) {
     throw new Error('limit must be a positive safe integer');
   }
+
   if (!Number.isSafeInteger(windowMs) || windowMs <= 0) {
     throw new Error('windowMs must be a positive safe integer');
   }
@@ -35,24 +36,36 @@ export function createFixedWindowLimiter({
       }
 
       const rawTimeMs = now();
+
       if (!Number.isSafeInteger(rawTimeMs) || rawTimeMs < 0) {
         throw new Error('clock must return non-negative safe integer milliseconds');
       }
 
       const previousWindow = windowsByKey.get(key);
-      const effectiveTimeMs = Math.max(rawTimeMs, previousWindow?.lastEffectiveTimeMs ?? rawTimeMs);
+      const lastEffectiveTimeMs = previousWindow?.lastEffectiveTimeMs ?? rawTimeMs;
+
+      // Moving the clock backwards must not reopen an earlier window.
+      const effectiveTimeMs = Math.max(rawTimeMs, lastEffectiveTimeMs);
 
       const windowStartMs = effectiveTimeMs - (effectiveTimeMs % windowMs);
       const resetAtMs = windowStartMs + windowMs;
+
       if (!Number.isSafeInteger(resetAtMs)) {
         throw new Error('window reset exceeds the safe timestamp range');
       }
 
-      const countBefore = previousWindow?.windowStartMs === windowStartMs
-        ? previousWindow.count
-        : 0;
+      let countBefore = 0;
+
+      if (previousWindow?.windowStartMs === windowStartMs) {
+        countBefore = previousWindow.count;
+      }
+
       const allowed = countBefore < limit;
-      const countAfter = allowed ? countBefore + 1 : countBefore;
+      let countAfter = countBefore;
+
+      if (allowed) {
+        countAfter++;
+      }
 
       windowsByKey.set(key, {
         windowStartMs,
