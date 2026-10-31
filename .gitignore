@@ -7,6 +7,6 @@ coverage/
 *.log
 .DS_Store
 
-tasks/
+.turbo/
 .next/
 *.tsbuildinfo

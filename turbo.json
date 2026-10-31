@@ -1,0 +1,18 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalDependencies": [".env"],
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "env": ["HOST", "PORT", "DATABASE_URL", "API_ORIGIN"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**"],
+      "env": ["API_ORIGIN"]
+    },
+    "lint": {},
+    "test": {"cache": false}
+  }
+}

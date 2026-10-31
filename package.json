@@ -1,0 +1,38 @@
+{
+  "name": "throtl",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^24.0.0 || ^26.0.0"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "eslint scripts eslint.config.mjs --max-warnings 0 && turbo run lint",
+    "test": "turbo run test",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose down",
+    "db:check": "npm run db:check --workspace @throtl/api",
+    "db:generate": "npm run db:generate --workspace @throtl/api",
+    "db:migrate": "npm run db:migrate --workspace @throtl/api",
+    "db:studio": "npm run db:studio --workspace @throtl/api"
+  },
+  "packageManager": "npm@11.19.1",
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@next/eslint-plugin-next": "16.4.3",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "turbo": "2.11.10"
+  }
+}
