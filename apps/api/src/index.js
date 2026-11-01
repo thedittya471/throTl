@@ -1,17 +1,19 @@
 import { createApp } from "./app.js";
-import { readConfig } from "./config.js";
+import { readAuthConfig, readConfig } from "./config.js";
 import { createDatabase } from "./db/client.js";
 
 let config;
+let authConfig;
 try {
   config = readConfig();
+  authConfig = readAuthConfig();
 } catch (error) {
   console.error(error.message);
   process.exit(1);
 }
 
-const { pool, checkDatabase } = createDatabase(config.databaseUrl);
-const app = createApp({ checkDatabase });
+const { pool, db, checkDatabase } = createDatabase(config.databaseUrl);
+const app = createApp({ checkDatabase, db, authConfig });
 const server = app.listen(config.port, config.host, () => {
   console.log(`throTl API listening on http://${config.host}:${config.port}`);
 });

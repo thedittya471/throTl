@@ -3,19 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --env-file-if-exists=../../.env src/index.js",
-    "start": "node --env-file-if-exists=../../.env src/index.js",
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
     "lint": "eslint . --max-warnings 0",
     "test": "node --test tests/*.test.js",
-    "db:check": "node --env-file-if-exists=../../.env --test tests/database.integration.js",
+    "db:check": "node --test tests/*.integration.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "bcrypt": "6.0.0",
+    "cookie-parser": "1.4.7",
+    "dotenv": "17.4.2",
     "drizzle-orm": "0.45.4",
     "express": "5.3.0",
     "helmet": "8.3.0",
+    "jsonwebtoken": "9.0.3",
     "pg": "8.23.1"
   },
   "devDependencies": {

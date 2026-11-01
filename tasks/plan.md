@@ -23,11 +23,25 @@ Connection button → Next.js /api/health → Express /ready → Drizzle → Pos
 
 Keep `scripts/setup.mjs`, `turbo.json`, Compose, ESLint, and the shutdown code as supporting setup while learning the page and request flow. They handle configuration, running tasks, and cleanup. Their setup commands are listed below under Local setup and verification.
 
+## Authentication reading order
+
+The home page includes registration, login, saved-session checking, refresh, and logout. Run `npm run setup` and `npm run db:migrate` before using it. Normal registration returns a logged-in account; email verification and password reset are not implemented.
+
+1. `apps/web/app/auth-form.jsx`: the form submits email/password to `/api/auth/register` or `/api/auth/login`. Cookies are handled by the browser, not stored in React or localStorage. Checking a saved login tries `/me`, then refreshes an expired access token and retries once.
+2. `apps/web/next.config.js`: Next.js forwards `/api/auth/*` to Express `/auth/*`, including cookies and Set-Cookie responses. This keeps browser requests on the same origin without adding CORS.
+3. `apps/api/src/auth/routes.js`: input validation, shared attempt limits, register, login, refresh, current user, and logout. Database queries use Drizzle; registration and session creation share a transaction.
+4. `apps/api/src/auth/tokens.js`: signs/verifies JWTs and sets/clears cookies. Access lasts 15 minutes; a session and its rotating refresh token last at most 7 days. Access and refresh use different secrets and purposes.
+5. `apps/api/src/db/schema.js`: `users` stores bcrypt password hashes; `auth_sessions` stores a digest of the current refresh token and expiry; `auth_attempts` stores bounded-window shared login counters. Logout removes the session, so existing access tokens stop working.
+
+Use `WEB_ORIGIN=http://localhost:3100` locally. In production, set its exact HTTPS origin, `NODE_ENV=production`, independent random `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` values of at least 32 characters, database credentials, and the internal `API_ORIGIN`. The API must be reachable only through the intended deployment network/reverse proxy. Production cookies are Secure and require HTTPS. Rebuild Next.js if the rewrite destination `API_ORIGIN` changes. Secrets are never returned to the browser or included in browser-exposed environment variables.
+
+All mutating auth requests must supply the exact configured Origin. Cookies are HttpOnly, host-only, SameSite=Lax, and uncached. Login limits are 10 attempts/email/15 minutes plus 100 attempts/minute globally; these are initial lab budgets. Duplicate registration responds with a conflict, while login uses the same error for unknown accounts and wrong passwords. Refresh uses one atomic compare-and-update; concurrent attempts permit one success, and the failed response does not clear the winning cookies.
+
 ## Outcome and scope
 
 Build a guided rate-limiting lab with real HTTP traffic against our own demo API. Learning takes priority over portfolio polish and the program assessment, while all three remain goals. Use Next.js/JavaScript, Node/Express/REST, PostgreSQL with Drizzle, and Redis when shared limiter state is introduced. Implement fixed window, exact sliding log, approximate sliding-window counter, token bucket, and queued leaky bucket by hand. A visitor can configure traffic, compare algorithms, inspect internal state, replay retained decisions, and export temporary results. Multiple visitors have independent runs. Hosting decisions and free-tier feasibility are deferred.
 
-Include steady, burst, ramp, sawtooth, boundary attack, and many-clients/heavy-client patterns; three real API processes with local/shared state; artificial per-instance clock offsets; and disposable login/search/payment/upload workflows. No visitor accounts/history, external target URLs, real financial services, or Go implementation. Rich application presets are additional scope beyond a simple traffic preset.
+Include steady, burst, ramp, sawtooth, boundary attack, and many-clients/heavy-client patterns; three real API processes with local/shared state; artificial per-instance clock offsets; and disposable login/search/payment/upload workflows. No saved visitor experiment history, external target URLs, real financial services, or Go implementation. Real email/password accounts are now supported separately from the disposable login workload. Rich application presets are additional scope beyond a simple traffic preset.
 
 ## Architecture: agreed choices and proposals
 
@@ -38,7 +52,7 @@ Proposed for review in Task 01:
 - One repository with a web app, API app, and a tiny shared contract package. Use npm workspaces and Turborepo for development, build, lint, and test tasks. Add a shared contract package only when actual shared code is needed.
 - One Express coordinator process owns experiment scheduling, bounded records, SSE subscriptions, and exports. Run the API in instance mode three times for the target endpoints. Roles share code and can be processes/containers on one host; this is not four separately designed microservices. The web browser controls experiments rather than dispatching benchmark requests.
 - All algorithms run on the same three target processes. Namespace state by run, algorithm, and logical limiter key. Comparing five algorithms does not require fifteen target processes.
-- Use Redis for atomic limiter updates and the disposable shared payment ledger. PostgreSQL with Drizzle is configured for future application data. Its table design and retention behavior require a concrete feature; no feature tables or saved visitor history are introduced by setup. Instance-local limiter state is intentionally local; payment correctness must not depend on routing retries to the same instance.
+- Use Redis for atomic limiter updates and the disposable shared payment ledger. PostgreSQL with Drizzle stores users, revocable login sessions, and shared authentication attempt counters. Saved experiment history is still outside scope. Instance-local limiter state is intentionally local; payment correctness must not depend on routing retries to the same instance.
 - SSE carries bounded batches of authoritative aggregate snapshots plus limited detail. Browser reconnect gets a current snapshot; it is not promised a durable lossless event log. REST starts/stops runs and retrieves results. Exact endpoints and authentication transport are specified in Task 01.
 - Anonymous runs use opaque capability credentials with enough entropy and no log exposure. Prefer same-origin browser/API access to simplify credential and stream access. Validate ownership for read, stop, stream, and export. Demo-target requests also need internal authorization so a public caller cannot bypass run budgets or forge unlimited runs.
 - Redis scripts or equivalent atomic Redis operations enforce check/update/expiry together. Do not use application-level read-then-write for admission. Use unique members for sliding-log requests. Keep scripts short and bounded; benchmark hot-key contention.
@@ -182,10 +196,11 @@ Run from the repository root with the Node version in `.nvmrc` (Node 26; Node 24
 npm ci
 npm run setup
 npm run db:up
+npm run db:migrate
 npm run dev
 ```
 
-`npm run setup` creates the ignored root `.env` with a random development password and never overwrites an existing file. Docker Compose, the API, Next.js, and Drizzle Kit use this file. It is local convenience configuration; production supplies secrets through the deployment environment. No browser-exposed environment variable contains database credentials.
+`npm run setup` creates the ignored root `.env` with a random development password and separate JWT secrets. Existing values are preserved; missing authentication settings are appended. Docker Compose uses this file; the API, Next.js, and Drizzle Kit load it with dotenv. It is local convenience configuration; production supplies secrets through the deployment environment. No browser-exposed environment variable contains database credentials.
 
 - Web: `http://localhost:3100`.
 - API liveness: `http://127.0.0.1:4000/health`.
@@ -200,15 +215,17 @@ npm run build
 npm run db:check
 ```
 
-`npm test` checks configuration, real HTTP API success/failure behavior, and the web health bridge without requiring a database. `npm run db:check` separately executes a real PostgreSQL query through Drizzle. Root configuration and setup code are included in the lint command.
+`npm test` checks configuration, real HTTP API success/failure behavior, and the web health bridge without requiring a database. `npm run db:check` also verifies authentication against a disposable PostgreSQL database created and removed by the test. The local test database user needs CREATEDB permission; do not run these integration tests with production credentials. Root configuration and setup code are included in the lint command.
 
-After adding the first feature table to `apps/api/src/db/schema.js`, run `npm run db:generate`, review the generated SQL under `apps/api/drizzle`, then run `npm run db:migrate`. The schema intentionally contains no feature tables yet. Drizzle has generated an empty migration journal; applying it only initializes migration bookkeeping. Migrations are explicit and never run on application startup. `npm run db:studio` is an optional local schema browser.
+For schema changes in `apps/api/src/db/schema.js`, run `npm run db:generate`, review the generated SQL under `apps/api/drizzle`, then run `npm run db:migrate`. The first migration creates users, authentication sessions, and shared attempt counters. Migrations are explicit and never run on application startup. `npm run db:studio` is an optional local schema browser.
 
 For production verification after a build, start the API with `npm run start --workspace @throtl/api` and the web with `npm run start --workspace @throtl/web`. Set `NODE_ENV=production` and supply database credentials and the server-only `API_ORIGIN` through the deployment environment. The API defaults to loopback; set `HOST=0.0.0.0` when a container platform requires it. Use a least-privilege database role, provider-required TLS, and a platform HTTPS reverse proxy before deployment. Each API process has at most ten pooled database connections, so size the database connection budget against the process count.
 
 Stop local PostgreSQL with `npm run db:down`; this preserves its data volume. Changing initialization credentials after the volume exists does not change the existing database user's password. Do not delete the volume to resolve this without accepting data loss.
 
 Drizzle Kit currently pulls an outdated nested esbuild through `@esbuild-kit/core-utils`. A narrow npm override selects esbuild 0.25.12 (also used directly by Drizzle Kit) to address GHSA-67mh-4wv8-2f99; schema generation and migration commands are verified with it. Remove the override when upstream no longer needs it.
+
+The current full npm audit also reports six moderate findings in the existing ESLint development dependency chain, rooted in minimatch <11.0.1 (GHSA-g3hv-75wg-m249). The production-only audit is clean. Lint patterns here are repository-controlled, and this dependency is not used on the request path. Do not apply npm's suggested forced ESLint downgrade; update the lint toolchain separately when a compatible upstream fix is available.
 
 The API uses finite database timeouts and a bounded graceful shutdown. Health/readiness and bridge responses are uncached. The frontend connection check is explicit, times out, and can be retried; it does not poll.
 

@@ -1,4 +1,5 @@
 import ConnectionStatus from "./connection-status.jsx";
+import AuthForm from "./auth-form.jsx";
 
 export default function Home() {
   return (
@@ -13,6 +14,7 @@ export default function Home() {
         <p>Check that the API and PostgreSQL are ready before building your first experiment.</p>
         <ConnectionStatus />
       </section>
+      <AuthForm />
       <footer>Next.js · Express · PostgreSQL · Drizzle</footer>
     </main>
   );

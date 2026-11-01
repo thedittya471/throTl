@@ -5,12 +5,12 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "env": ["HOST", "PORT", "DATABASE_URL", "API_ORIGIN"]
+      "env": ["HOST", "PORT", "DATABASE_URL", "API_ORIGIN", "WEB_ORIGIN", "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET"]
     },
     "build": {
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**"],
-      "env": ["API_ORIGIN"]
+      "env": ["API_ORIGIN", "WEB_ORIGIN"]
     },
     "lint": {},
     "test": {"cache": false}

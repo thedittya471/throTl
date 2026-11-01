@@ -1,14 +1,14 @@
-import { existsSync } from "node:fs";
-import { loadEnvFile } from "node:process";
+import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 
-const envFile = new URL("../../.env", import.meta.url);
-if (existsSync(envFile)) {
-  loadEnvFile(envFile);
-}
+dotenv.config({ path: new URL("../../.env", import.meta.url), quiet: true });
 
 const nextConfig = {
   poweredByHeader: false,
+  async rewrites() {
+    const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:4000";
+    return [{ source: "/api/auth/:path*", destination: `${apiOrigin}/auth/:path*` }];
+  },
   turbopack: {
     root: fileURLToPath(new URL("../../", import.meta.url))
   }
