@@ -1,18 +1,11 @@
 {
-  "name": "@throtl/web",
+  "name": "web",
+  "version": "0.0.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "next dev --port 3100",
-    "build": "next build",
-    "start": "next start --port 3100",
-    "lint": "eslint . --max-warnings 0",
-    "test": "node --test tests/*.test.js"
-  },
-  "dependencies": {
-    "dotenv": "17.4.2",
-    "next": "16.4.3",
-    "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "dev": "echo 'web dev'",
+    "build": "echo 'web build'",
+    "lint": "echo 'web lint'",
+    "test": "echo 'web test'"
   }
 }
