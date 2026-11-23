@@ -10,3 +10,7 @@ coverage/
 .turbo/
 .next/
 *.tsbuildinfo
+
+tasks/
+agents.md
+
