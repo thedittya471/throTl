@@ -3,3 +3,4 @@ export * from "./algorithms/fixed-window.js";
 export * from "./algorithms/sliding-log.js";
 export * from "./algorithms/sliding-window-counter.js";
 export * from "./algorithms/token-bucket.js";
+export * from "./algorithms/leaky-bucket.js";
