@@ -1,11 +1,20 @@
 {
-  "name": "api",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@throtl/api",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/instance.js",
   "scripts": {
-    "dev": "echo 'api dev'",
-    "build": "echo 'api build'",
-    "lint": "echo 'api lint'",
-    "test": "echo 'api test'"
+    "build": "tsc",
+    "dev": "node --watch src/instance.ts",
+    "test": "node --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@throtl/rate-limiter": "*",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.0",
+    "typescript": "^5.8.0"
   }
 }
