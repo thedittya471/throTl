@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { InstanceServer } from "../src/instance.ts";
+import { InstanceServer } from "../dist/instance.js";
 
 describe("InstanceServer", () => {
   const port = 4055;
