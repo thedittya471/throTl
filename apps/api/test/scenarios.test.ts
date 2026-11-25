@@ -133,12 +133,13 @@ describe("Coordinator Simulator Endpoints & Traffic Routing", () => {
     const pauseData = await pauseRes.json();
     assert.equal(pauseData.paused, true);
 
-    const emittedBefore = statusData.stats.totalEmitted;
+    const statusAfterPause = await (await fetch(`${baseUrl}/api/simulator/status`)).json();
+    const emittedPaused = statusAfterPause.stats.totalEmitted;
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const statusPaused = await (await fetch(`${baseUrl}/api/simulator/status`)).json();
-    assert.equal(statusPaused.paused, true);
-    assert.equal(statusPaused.stats.totalEmitted, emittedBefore);
+    const statusStillPaused = await (await fetch(`${baseUrl}/api/simulator/status`)).json();
+    assert.equal(statusStillPaused.paused, true);
+    assert.equal(statusStillPaused.stats.totalEmitted, emittedPaused);
 
     // Resume simulator
     const resumeRes = await fetch(`${baseUrl}/api/simulator/resume`, { method: "POST" });
@@ -152,7 +153,7 @@ describe("Coordinator Simulator Endpoints & Traffic Routing", () => {
     const stopData = await stopRes.json();
     assert.equal(stopData.success, true);
     assert.equal(stopData.running, false);
-    assert.ok(stopData.stats.totalEmitted > emittedBefore);
+    assert.ok(stopData.stats.totalEmitted > emittedPaused);
   });
 
   it("configures cluster settings via POST /api/simulator/configure", async () => {
