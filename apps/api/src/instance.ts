@@ -47,6 +47,7 @@ export class InstanceServer {
   refillRatePerSec: number;
   leakRatePerSec: number;
 
+  private redisUrl: string;
   private redisManager?: RedisClientManager;
   private activeLimiter!: IRateLimiter;
   private app: Express;
@@ -64,8 +65,7 @@ export class InstanceServer {
     this.refillRatePerSec = config.refillRatePerSec || 10;
     this.leakRatePerSec = config.leakRatePerSec || 10;
 
-    const redisUrl = config.redisUrl || process.env.REDIS_URL || "redis://localhost:6379";
-    this.redisManager = new RedisClientManager({ url: redisUrl });
+    this.redisUrl = config.redisUrl || process.env.REDIS_URL || "redis://localhost:6379";
 
     this.app = express();
     this.setupLimiter();
@@ -74,7 +74,13 @@ export class InstanceServer {
 
   private setupLimiter(): void {
     const isShared = this.mode === "shared";
-    const redis = this.redisManager!.getClient();
+    let redis: any;
+    if (isShared) {
+      if (!this.redisManager) {
+        this.redisManager = new RedisClientManager({ url: this.redisUrl });
+      }
+      redis = this.redisManager.getClient();
+    }
 
     switch (this.algorithm) {
       case "fixed-window":

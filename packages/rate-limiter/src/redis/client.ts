@@ -19,6 +19,7 @@ export class RedisClientManager {
     };
 
     this.client = new Redis(url, defaultOptions);
+    this.client.on("error", () => {});
   }
 
   getClient(): Redis {
