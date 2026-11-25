@@ -9,6 +9,8 @@ import {
   PRESET_SCENARIOS,
   getPresetScenario,
 } from "../traffic/index.js";
+import { MetricAggregator } from "../metrics/index.js";
+import { MetricsStreamManager } from "./stream.js";
 
 export interface InstanceTarget {
   id: string;
@@ -25,6 +27,8 @@ export interface CoordinatorConfig {
   windowSizeMs?: number;
   refillRatePerSec?: number;
   leakRatePerSec?: number;
+  tickIntervalMs?: number;
+  heartbeatIntervalMs?: number;
 }
 
 export class CoordinatorGateway {
@@ -36,6 +40,8 @@ export class CoordinatorGateway {
   windowSizeMs: number;
   refillRatePerSec: number;
   leakRatePerSec: number;
+  readonly aggregator: MetricAggregator;
+  readonly metricsStream: MetricsStreamManager;
 
   private app: Express;
   private server?: Server;
@@ -52,6 +58,14 @@ export class CoordinatorGateway {
     this.windowSizeMs = config.windowSizeMs || 60_000;
     this.refillRatePerSec = config.refillRatePerSec || 10;
     this.leakRatePerSec = config.leakRatePerSec || 10;
+
+    this.aggregator = new MetricAggregator({
+      tickIntervalMs: config.tickIntervalMs ?? 100,
+      sampleBufferSize: 100,
+    });
+    this.metricsStream = new MetricsStreamManager(this.aggregator, {
+      heartbeatIntervalMs: config.heartbeatIntervalMs ?? 15_000,
+    });
 
     if (config.instances && config.instances.length > 0) {
       this.instances = config.instances;
@@ -94,6 +108,10 @@ export class CoordinatorGateway {
         algorithm: this.algorithm,
         instances: this.instances,
       });
+    });
+
+    this.app.get("/api/stream/metrics", (req: Request, res: Response) => {
+      this.metricsStream.handleClient(req, res);
     });
 
     this.app.get("/api/cluster/status", async (_req: Request, res: Response) => {
@@ -348,6 +366,18 @@ export class CoordinatorGateway {
         if (retryHeader) res.setHeader("Retry-After", retryHeader);
 
         const data = await response.json();
+
+        this.aggregator.record({
+          allowed: response.status === 200,
+          decisionLatencyNs: Number(latHeader) || 0,
+          remaining: Number(remainingHeader) || 0,
+          limit: Number(limitHeader) || 0,
+          instanceId: instHeader || target.id,
+          clientId: String(req.headers["x-client-id"] || "client-default"),
+          route: req.path,
+          internalState: data?.internalState,
+        });
+
         res.status(response.status).json(data);
       } catch (err: any) {
         res.status(502).json({
@@ -386,6 +416,24 @@ export class CoordinatorGateway {
       },
       body: JSON.stringify({}),
     });
+
+    const data = await resp.json().catch(() => ({}));
+    const latHeader = resp.headers.get("x-ratelimit-latency-ns");
+    const limitHeader = resp.headers.get("x-ratelimit-limit");
+    const remHeader = resp.headers.get("x-ratelimit-remaining");
+    const instHeader = resp.headers.get("x-ratelimit-instance");
+
+    this.aggregator.record({
+      allowed: resp.status === 200,
+      decisionLatencyNs: Number(latHeader) || 0,
+      remaining: Number(remHeader) || 0,
+      limit: Number(limitHeader) || 0,
+      instanceId: instHeader || target.id,
+      clientId: headers["x-client-id"] || "client-default",
+      route,
+      internalState: data?.internalState,
+    });
+
     return resp;
   }
 
@@ -410,6 +458,8 @@ export class CoordinatorGateway {
   }
 
   async start(): Promise<void> {
+    this.aggregator.start();
+
     if (this.spawnedWorkers.length > 0) {
       await Promise.all(this.spawnedWorkers.map((w) => w.start()));
     }
@@ -422,6 +472,9 @@ export class CoordinatorGateway {
   }
 
   async stop(): Promise<void> {
+    this.metricsStream.closeAll();
+    this.aggregator.stop();
+
     if (this.trafficEngine) {
       this.trafficEngine.stop();
       this.trafficEngine = null;
