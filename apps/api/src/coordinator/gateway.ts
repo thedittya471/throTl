@@ -1,5 +1,13 @@
 import express, { type Request, type Response, type Express } from "express";
 import { Server } from "node:http";
+import {
+  type IRateLimiter,
+  FixedWindowLimiter,
+  SlidingLogLimiter,
+  SlidingWindowCounterLimiter,
+  TokenBucketLimiter,
+  LeakyBucketLimiter,
+} from "@throtl/rate-limiter";
 import { InstanceServer, type LimiterMode, type AlgorithmType } from "../instance.js";
 import {
   TrafficEngine,
@@ -29,6 +37,26 @@ export interface CoordinatorConfig {
   leakRatePerSec?: number;
   tickIntervalMs?: number;
   heartbeatIntervalMs?: number;
+}
+
+function createCompareLimiter(
+  algorithm: AlgorithmType,
+  config: { limit: number; windowSizeMs: number; refillRatePerSec: number; leakRatePerSec: number }
+): IRateLimiter {
+  switch (algorithm) {
+    case "fixed-window":
+      return new FixedWindowLimiter({ limit: config.limit, windowSizeMs: config.windowSizeMs });
+    case "sliding-log":
+      return new SlidingLogLimiter({ limit: config.limit, windowSizeMs: config.windowSizeMs });
+    case "sliding-window-counter":
+      return new SlidingWindowCounterLimiter({ limit: config.limit, windowSizeMs: config.windowSizeMs });
+    case "token-bucket":
+      return new TokenBucketLimiter({ capacity: config.limit, refillRatePerSec: config.refillRatePerSec });
+    case "leaky-bucket":
+      return new LeakyBucketLimiter({ capacity: config.limit, leakRatePerSec: config.leakRatePerSec });
+    default:
+      return new FixedWindowLimiter({ limit: config.limit, windowSizeMs: config.windowSizeMs });
+  }
 }
 
 export class CoordinatorGateway {
@@ -200,6 +228,193 @@ export class CoordinatorGateway {
         paused: this.trafficEngine?.isPaused() ?? false,
         scenario: this.currentScenario,
         stats: this.trafficEngine?.getStats() ?? null,
+      });
+    });
+
+    this.app.post("/api/simulator/compare", async (req: Request, res: Response) => {
+      const {
+        algoA = "fixed-window",
+        algoB = "sliding-window-counter",
+        scenario = "window-boundary",
+        limit = 100,
+        windowSizeMs = 60_000,
+        refillRatePerSec = 10,
+        leakRatePerSec = 10,
+      } = req.body || {};
+
+      const numLimit = Number(limit) || 100;
+      const numWindow = Number(windowSizeMs) || 60_000;
+      const numRefill = Number(refillRatePerSec) || 10;
+      const numLeak = Number(leakRatePerSec) || 10;
+
+      const limiterA = createCompareLimiter(algoA as AlgorithmType, {
+        limit: numLimit,
+        windowSizeMs: numWindow,
+        refillRatePerSec: numRefill,
+        leakRatePerSec: numLeak,
+      });
+
+      const limiterB = createCompareLimiter(algoB as AlgorithmType, {
+        limit: numLimit,
+        windowSizeMs: numWindow,
+        refillRatePerSec: numRefill,
+        leakRatePerSec: numLeak,
+      });
+
+      interface SyntheticReq {
+        key: string;
+        timestampMs: number;
+        cost: number;
+      }
+      const reqs: SyntheticReq[] = [];
+
+      if (scenario === "window-boundary") {
+        const key = "client-boundary-attacker";
+        const t1 = numWindow - 100;
+        const t2 = numWindow + 100;
+        for (let i = 0; i < numLimit; i++) {
+          reqs.push({ key, timestampMs: t1, cost: 1 });
+        }
+        for (let i = 0; i < numLimit; i++) {
+          reqs.push({ key, timestampMs: t2, cost: 1 });
+        }
+      } else if (scenario === "burst-spike") {
+        const key = "client-spike";
+        for (let i = 0; i < 50; i++) {
+          reqs.push({ key, timestampMs: i * 100, cost: 1 });
+        }
+        for (let i = 0; i < 150; i++) {
+          reqs.push({ key, timestampMs: 5000 + i * 6, cost: 1 });
+        }
+        for (let i = 0; i < 50; i++) {
+          reqs.push({ key, timestampMs: 10000 + i * 100, cost: 1 });
+        }
+      } else if (scenario === "heavy-client") {
+        for (let i = 0; i < 200; i++) {
+          const key = i % 5 === 0 ? "client-normal" : "client-heavy-monopolizer";
+          reqs.push({ key, timestampMs: i * 100, cost: 1 });
+        }
+      } else {
+        const key = "client-steady";
+        for (let i = 0; i < 200; i++) {
+          reqs.push({ key, timestampMs: i * 250, cost: 1 });
+        }
+      }
+
+      let allowedA = 0;
+      let rejectedA = 0;
+      let totalLatA = 0;
+      let lastStateA: Record<string, any> = {};
+
+      let allowedB = 0;
+      let rejectedB = 0;
+      let totalLatB = 0;
+      let lastStateB: Record<string, any> = {};
+
+      const samples: Array<{
+        index: number;
+        clientId: string;
+        timestampMs: number;
+        allowedA: boolean;
+        allowedB: boolean;
+        remainingA: number;
+        remainingB: number;
+      }> = [];
+
+      const minTime = reqs[0]?.timestampMs ?? 0;
+      const maxTime = reqs[reqs.length - 1]?.timestampMs ?? numWindow;
+      const bucketCount = 20;
+      const timeSpan = Math.max(maxTime - minTime, 1);
+      const bucketSize = Math.max(Math.ceil(timeSpan / bucketCount), 1);
+
+      const timeline: Array<{
+        bucketIndex: number;
+        timeMs: number;
+        allowedA: number;
+        rejectedA: number;
+        allowedB: number;
+        rejectedB: number;
+      }> = Array.from({ length: bucketCount }, (_, idx) => ({
+        bucketIndex: idx,
+        timeMs: minTime + idx * bucketSize,
+        allowedA: 0,
+        rejectedA: 0,
+        allowedB: 0,
+        rejectedB: 0,
+      }));
+
+      for (let i = 0; i < reqs.length; i++) {
+        const item = reqs[i];
+        const resA = await limiterA.evaluate({ key: item.key, timestampMs: item.timestampMs, cost: item.cost });
+        const resB = await limiterB.evaluate({ key: item.key, timestampMs: item.timestampMs, cost: item.cost });
+
+        if (resA.allowed) allowedA++;
+        else rejectedA++;
+        totalLatA += resA.decisionLatencyNs;
+        lastStateA = resA.internalState;
+
+        if (resB.allowed) allowedB++;
+        else rejectedB++;
+        totalLatB += resB.decisionLatencyNs;
+        lastStateB = resB.internalState;
+
+        const bIdx = Math.min(
+          Math.floor((item.timestampMs - minTime) / bucketSize),
+          bucketCount - 1
+        );
+        if (bIdx >= 0 && bIdx < bucketCount) {
+          if (resA.allowed) timeline[bIdx].allowedA++;
+          else timeline[bIdx].rejectedA++;
+
+          if (resB.allowed) timeline[bIdx].allowedB++;
+          else timeline[bIdx].rejectedB++;
+        }
+
+        if (i < 50 || i >= reqs.length - 10) {
+          samples.push({
+            index: i + 1,
+            clientId: item.key,
+            timestampMs: item.timestampMs,
+            allowedA: resA.allowed,
+            allowedB: resB.allowed,
+            remainingA: resA.remaining,
+            remainingB: resB.remaining,
+          });
+        }
+      }
+
+      const divergence = allowedA - allowedB;
+      const boundaryLeakDetected =
+        scenario === "window-boundary" &&
+        ((algoA === "fixed-window" && allowedA > numLimit) ||
+          (algoB === "fixed-window" && allowedB > numLimit));
+
+      res.json({
+        success: true,
+        scenario,
+        limit: numLimit,
+        windowSizeMs: numWindow,
+        totalRequests: reqs.length,
+        divergence,
+        boundaryLeakDetected,
+        algoA: {
+          algorithm: algoA,
+          total: reqs.length,
+          allowed: allowedA,
+          rejected: rejectedA,
+          avgLatencyNs: Math.round(totalLatA / Math.max(reqs.length, 1)),
+          internalState: lastStateA,
+        },
+        algoB: {
+          algorithm: algoB,
+          total: reqs.length,
+          allowed: allowedB,
+          rejected: rejectedB,
+          avgLatencyNs: Math.round(totalLatB / Math.max(reqs.length, 1)),
+          internalState: lastStateB,
+        },
+        timeline,
+        sampleRequests: samples,
       });
     });
 

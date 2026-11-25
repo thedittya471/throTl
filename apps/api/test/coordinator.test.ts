@@ -112,4 +112,39 @@ describe("CoordinatorGateway & Multi-Instance Cluster", () => {
     assert.equal(sharedAllowed, 3, "Shared mode should strictly allow only 3 requests cluster-wide");
     assert.equal(sharedBlocked, 6, "Shared mode should reject 6 requests with 429");
   });
+
+  it("replays comparative scenarios via POST /api/simulator/compare and detects boundary leak", async () => {
+    const res = await fetch(`${baseUrl}/api/simulator/compare`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        algoA: "fixed-window",
+        algoB: "sliding-window-counter",
+        scenario: "window-boundary",
+        limit: 100,
+        windowSizeMs: 60_000,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const data = await res.json();
+
+    assert.equal(data.success, true);
+    assert.equal(data.scenario, "window-boundary");
+    assert.equal(data.totalRequests, 200);
+
+    // Fixed Window allows 200 across window boundary
+    assert.equal(data.algoA.allowed, 200);
+    assert.equal(data.algoA.rejected, 0);
+
+    // Sliding Window Counter blocks the second window burst (allowed = 100)
+    assert.equal(data.algoB.allowed, 100);
+    assert.equal(data.algoB.rejected, 100);
+
+    // Divergence is exactly 100 requests leaked
+    assert.equal(data.divergence, 100);
+    assert.equal(data.boundaryLeakDetected, true);
+    assert.ok(data.timeline.length > 0);
+    assert.ok(data.sampleRequests.length > 0);
+  });
 });

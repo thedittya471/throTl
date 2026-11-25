@@ -13,8 +13,10 @@ import {
 import { TimelineVisualizer } from "../components/TimelineVisualizer";
 import { InstanceGauges } from "../components/InstanceGauges";
 import { AlgorithmStateCard } from "../components/AlgorithmStateCard";
+import { ComparisonMatrix } from "../components/ComparisonMatrix";
 
 export default function Dashboard() {
+  const [viewMode, setViewMode] = useState<"cockpit" | "comparison">("cockpit");
   const [algorithm, setAlgorithm] = useState<AlgorithmType>("fixed-window");
   const [mode, setMode] = useState<LimiterMode>("per-instance");
   const [scenario, setScenario] = useState<ScenarioPreset>("custom");
@@ -251,66 +253,98 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Studio Control Panel */}
-        <section>
-          <ControlPanel
-            algorithm={algorithm}
-            onAlgorithmChange={handleAlgorithmChange}
-            mode={mode}
-            onModeChange={handleModeChange}
-            scenario={scenario}
-            onScenarioChange={handleScenarioChange}
-            pattern={pattern}
-            onPatternChange={setPattern}
-            targetRps={targetRps}
-            onTargetRpsChange={setTargetRps}
-            clientCount={clientCount}
-            onClientCountChange={setClientCount}
-            limit={limit}
-            onLimitChange={setLimit}
-            windowSizeMs={windowSizeMs}
-            onWindowSizeChange={setWindowSizeMs}
-            isRunning={isRunning}
-            isPaused={isPaused}
-            onStart={handleStart}
-            onPause={handlePause}
-            onResume={handleResume}
-            onStop={handleStop}
-            onReset={handleReset}
-            stats={stats}
-          />
-        </section>
+        {/* View Mode Switcher */}
+        <div className="flex items-center gap-3 border-b border-white/[0.08] pb-4">
+          <button
+            onClick={() => setViewMode("cockpit")}
+            className={`px-4 py-2 font-mono text-xs uppercase tracking-wider transition-all border ${
+              viewMode === "cockpit"
+                ? "border-studio-orange text-studio-orange bg-studio-orange/10 font-bold"
+                : "border-white/10 text-white/50 hover:text-white hover:border-white/20 bg-carbon-900/40"
+            }`}
+          >
+            [ 01 ] Cockpit Monitor
+          </button>
+          <button
+            onClick={() => setViewMode("comparison")}
+            className={`px-4 py-2 font-mono text-xs uppercase tracking-wider transition-all border ${
+              viewMode === "comparison"
+                ? "border-studio-orange text-studio-orange bg-studio-orange/10 font-bold"
+                : "border-white/10 text-white/50 hover:text-white hover:border-white/20 bg-carbon-900/40"
+            }`}
+          >
+            [ 02 ] Comparison Matrix (Commit 7.4)
+          </button>
+        </div>
 
-        {/* 60 FPS Telemetry Canvas Timeline (Commit 7.2) & Instance Gauges (Commit 7.3) */}
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Live Timeline Component */}
-          <div className="lg:col-span-2">
-            <TimelineVisualizer
-              latestTick={latestTick}
-              limit={limit}
-              isStreaming={isStreaming}
-            />
-          </div>
+        {viewMode === "cockpit" ? (
+          <>
+            {/* Studio Control Panel */}
+            <section>
+              <ControlPanel
+                algorithm={algorithm}
+                onAlgorithmChange={handleAlgorithmChange}
+                mode={mode}
+                onModeChange={handleModeChange}
+                scenario={scenario}
+                onScenarioChange={handleScenarioChange}
+                pattern={pattern}
+                onPatternChange={setPattern}
+                targetRps={targetRps}
+                onTargetRpsChange={setTargetRps}
+                clientCount={clientCount}
+                onClientCountChange={setClientCount}
+                limit={limit}
+                onLimitChange={setLimit}
+                windowSizeMs={windowSizeMs}
+                onWindowSizeChange={setWindowSizeMs}
+                isRunning={isRunning}
+                isPaused={isPaused}
+                onStart={handleStart}
+                onPause={handlePause}
+                onResume={handleResume}
+                onStop={handleStop}
+                onReset={handleReset}
+                stats={stats}
+              />
+            </section>
 
-          {/* Instance Gauges (Commit 7.3) */}
-          <div>
-            <InstanceGauges
-              distribution={latestTick?.instanceDistribution}
-              mode={mode}
-              limit={limit}
-            />
-          </div>
-        </section>
+            {/* 60 FPS Telemetry Canvas Timeline (Commit 7.2) & Instance Gauges (Commit 7.3) */}
+            <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              {/* Live Timeline Component */}
+              <div className="lg:col-span-2">
+                <TimelineVisualizer
+                  latestTick={latestTick}
+                  limit={limit}
+                  isStreaming={isStreaming}
+                />
+              </div>
 
-        {/* Algorithm State Inspector (Commit 7.3) */}
-        <section>
-          <AlgorithmStateCard
-            algorithm={algorithm}
-            stateSnapshot={latestTick?.internalStateSnapshot}
-            limit={limit}
-            windowSizeMs={windowSizeMs}
-          />
-        </section>
+              {/* Instance Gauges (Commit 7.3) */}
+              <div>
+                <InstanceGauges
+                  distribution={latestTick?.instanceDistribution}
+                  mode={mode}
+                  limit={limit}
+                />
+              </div>
+            </section>
+
+            {/* Algorithm State Inspector (Commit 7.3) */}
+            <section>
+              <AlgorithmStateCard
+                algorithm={algorithm}
+                stateSnapshot={latestTick?.internalStateSnapshot}
+                limit={limit}
+                windowSizeMs={windowSizeMs}
+              />
+            </section>
+          </>
+        ) : (
+          <section>
+            <ComparisonMatrix />
+          </section>
+        )}
 
         {/* Minimal Editorial Footer */}
         <footer className="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono text-[10px] text-carbon-500">
