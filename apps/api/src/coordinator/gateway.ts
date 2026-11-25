@@ -146,7 +146,9 @@ export class CoordinatorGateway {
       const statuses = await Promise.all(
         this.instances.map(async (inst) => {
           try {
-            const resp = await fetch(`${inst.url}/health`);
+            const resp = await fetch(`${inst.url}/health`, {
+              signal: AbortSignal.timeout(2000),
+            });
             const data = await resp.json();
             return { id: inst.id, url: inst.url, alive: true, data };
           } catch (err: any) {
@@ -205,17 +207,31 @@ export class CoordinatorGateway {
     });
 
     this.app.post("/api/simulator/reset", async (_req: Request, res: Response) => {
+      this.trafficEngine?.reset();
+      const wasRunning = this.aggregator.isRunning();
+      this.aggregator.reset();
+      if (wasRunning) {
+        this.aggregator.start();
+      }
+
       await Promise.all(
         this.instances.map(async (inst) => {
           try {
-            await fetch(`${inst.url}/api/reset`, { method: "POST" });
+            await fetch(`${inst.url}/api/reset`, {
+              method: "POST",
+              signal: AbortSignal.timeout(2000),
+            });
           } catch {
             // Ignore offline instances on reset
           }
         })
       );
 
-      res.json({ success: true, reset: true });
+      res.json({
+        success: true,
+        reset: true,
+        stats: this.trafficEngine?.getStats() ?? null,
+      });
     });
 
     this.app.get("/api/simulator/scenarios", (_req: Request, res: Response) => {
@@ -565,6 +581,7 @@ export class CoordinatorGateway {
           method: req.method,
           headers,
           body: req.method !== "GET" && req.method !== "HEAD" ? JSON.stringify(req.body) : undefined,
+          signal: AbortSignal.timeout(3000),
         });
 
         // Forward standard rate-limit headers
@@ -584,7 +601,7 @@ export class CoordinatorGateway {
         if (latHeader) res.setHeader("X-RateLimit-Latency-Ns", latHeader);
         if (retryHeader) res.setHeader("Retry-After", retryHeader);
 
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
 
         this.aggregator.record({
           allowed: response.status === 200,
@@ -599,6 +616,17 @@ export class CoordinatorGateway {
 
         res.status(response.status).json(data);
       } catch (err: any) {
+        this.aggregator.record({
+          allowed: false,
+          decisionLatencyNs: 0,
+          remaining: 0,
+          limit: this.limit,
+          instanceId: target.id,
+          clientId: String(req.headers["x-client-id"] || "client-default"),
+          route: req.path,
+          internalState: { error: err?.message || "gateway_error" },
+        });
+
         res.status(502).json({
           error: "Bad Gateway",
           target: target.id,
@@ -627,33 +655,48 @@ export class CoordinatorGateway {
     this.rrIndex++;
 
     const targetUrl = `${target.url}${route}`;
-    const resp = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...headers,
-      },
-      body: JSON.stringify({}),
-    });
+    try {
+      const resp = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headers,
+        },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(3000),
+      });
 
-    const data = await resp.json().catch(() => ({}));
-    const latHeader = resp.headers.get("x-ratelimit-latency-ns");
-    const limitHeader = resp.headers.get("x-ratelimit-limit");
-    const remHeader = resp.headers.get("x-ratelimit-remaining");
-    const instHeader = resp.headers.get("x-ratelimit-instance");
+      const data = await resp.json().catch(() => ({}));
+      const latHeader = resp.headers.get("x-ratelimit-latency-ns");
+      const limitHeader = resp.headers.get("x-ratelimit-limit");
+      const remHeader = resp.headers.get("x-ratelimit-remaining");
+      const instHeader = resp.headers.get("x-ratelimit-instance");
 
-    this.aggregator.record({
-      allowed: resp.status === 200,
-      decisionLatencyNs: Number(latHeader) || 0,
-      remaining: Number(remHeader) || 0,
-      limit: Number(limitHeader) || 0,
-      instanceId: instHeader || target.id,
-      clientId: headers["x-client-id"] || "client-default",
-      route,
-      internalState: data?.internalState,
-    });
+      this.aggregator.record({
+        allowed: resp.status === 200,
+        decisionLatencyNs: Number(latHeader) || 0,
+        remaining: Number(remHeader) || 0,
+        limit: Number(limitHeader) || 0,
+        instanceId: instHeader || target.id,
+        clientId: headers["x-client-id"] || "client-default",
+        route,
+        internalState: data?.internalState,
+      });
 
-    return resp;
+      return resp;
+    } catch (err: any) {
+      this.aggregator.record({
+        allowed: false,
+        decisionLatencyNs: 0,
+        remaining: 0,
+        limit: this.limit,
+        instanceId: target.id,
+        clientId: headers["x-client-id"] || "client-default",
+        route,
+        internalState: { error: err?.message || "dispatch_failed" },
+      });
+      return null;
+    }
   }
 
   async broadcastConfig(config: Record<string, any>): Promise<void> {
@@ -664,6 +707,7 @@ export class CoordinatorGateway {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(config),
+            signal: AbortSignal.timeout(2000),
           });
         } catch {
           // Worker might be offline

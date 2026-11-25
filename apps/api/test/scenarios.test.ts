@@ -182,4 +182,30 @@ describe("Coordinator Simulator Endpoints & Traffic Routing", () => {
     assert.equal(healthData.mode, "shared");
     assert.equal(healthData.algorithm, "token-bucket");
   });
+
+  it("clears traffic engine stats and resets cluster counters on POST /api/simulator/reset", async () => {
+    // 1. Start traffic briefly
+    await fetch(`${baseUrl}/api/simulator/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scenario: "login-brute-force" }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    // Verify requests were emitted
+    const preResetStatus = await (await fetch(`${baseUrl}/api/simulator/status`)).json();
+    assert.ok(preResetStatus.stats.totalEmitted > 0);
+
+    // 2. Reset simulator
+    const resetRes = await fetch(`${baseUrl}/api/simulator/reset`, { method: "POST" });
+    const resetData = await resetRes.json();
+    assert.equal(resetRes.status, 200);
+    assert.equal(resetData.success, true);
+    assert.equal(resetData.stats.totalEmitted, 0);
+
+    // 3. Status endpoint must now report 0 emitted requests
+    const postResetStatus = await (await fetch(`${baseUrl}/api/simulator/status`)).json();
+    assert.equal(postResetStatus.running, false);
+    assert.equal(postResetStatus.stats.totalEmitted, 0);
+  });
 });
