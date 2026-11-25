@@ -11,7 +11,8 @@ import {
   type TrafficPattern,
 } from "../components/ControlPanel";
 import { TimelineVisualizer } from "../components/TimelineVisualizer";
-import { Gauge } from "lucide-react";
+import { InstanceGauges } from "../components/InstanceGauges";
+import { AlgorithmStateCard } from "../components/AlgorithmStateCard";
 
 export default function Dashboard() {
   const [algorithm, setAlgorithm] = useState<AlgorithmType>("fixed-window");
@@ -280,7 +281,7 @@ export default function Dashboard() {
           />
         </section>
 
-        {/* 60 FPS Telemetry Canvas Timeline (Commit 7.2) & Instance Gauges Slot */}
+        {/* 60 FPS Telemetry Canvas Timeline (Commit 7.2) & Instance Gauges (Commit 7.3) */}
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* Live Timeline Component */}
           <div className="lg:col-span-2">
@@ -291,30 +292,24 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Instance Gauges Slot (Commit 7.3) */}
-          <div className="studio-card corner-crosshair p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <span className="text-studio-orange font-bold">[ 06 ]</span>
-                <span className="font-semibold uppercase tracking-wider text-white">
-                  Cluster Distribution
-                </span>
-              </div>
-              <span className="text-carbon-500">PREPARED FOR 7.3</span>
-            </div>
-
-            <div className="flex h-[240px] items-center justify-center border border-dashed border-white/[0.08] bg-carbon-950/60 text-center font-mono">
-              <div className="space-y-1">
-                <Gauge className="mx-auto h-6 w-6 text-carbon-400" />
-                <div className="text-xs font-bold text-white uppercase tracking-wider pt-1">
-                  Load Distribution Inspector
-                </div>
-                <div className="text-[10px] text-carbon-500">
-                  Node 1 (:4001) // Node 2 (:4002) // Node 3 (:4003)
-                </div>
-              </div>
-            </div>
+          {/* Instance Gauges (Commit 7.3) */}
+          <div>
+            <InstanceGauges
+              distribution={latestTick?.instanceDistribution}
+              mode={mode}
+              limit={limit}
+            />
           </div>
+        </section>
+
+        {/* Algorithm State Inspector (Commit 7.3) */}
+        <section>
+          <AlgorithmStateCard
+            algorithm={algorithm}
+            stateSnapshot={latestTick?.internalStateSnapshot}
+            limit={limit}
+            windowSizeMs={windowSizeMs}
+          />
         </section>
 
         {/* Minimal Editorial Footer */}
