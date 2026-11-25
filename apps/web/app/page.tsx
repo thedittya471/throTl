@@ -15,6 +15,7 @@ import { InstanceGauges } from "../components/InstanceGauges";
 import { AlgorithmStateCard } from "../components/AlgorithmStateCard";
 import { ComparisonMatrix } from "../components/ComparisonMatrix";
 import { GuidedTour } from "../components/GuidedTour";
+import { shouldIgnoreGlobalKey, shouldIgnoreGlobalSpace } from "../lib/keyboard";
 
 export default function Dashboard() {
   const [viewMode, setViewMode] = useState<"cockpit" | "comparison">("cockpit");
@@ -245,23 +246,12 @@ export default function Dashboard() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "SELECT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
+      if (shouldIgnoreGlobalKey(target)) {
         return;
       }
 
       if (e.code === "Space") {
-        if (
-          target &&
-          (target.tagName === "BUTTON" ||
-            target.closest("button") ||
-            target.getAttribute("role") === "button")
-        ) {
+        if (shouldIgnoreGlobalSpace(target)) {
           return;
         }
         e.preventDefault();

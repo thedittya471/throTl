@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3100",
     "lint": "echo 'web lint'",
-    "test": "echo 'web test'"
+    "test": "npx tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
