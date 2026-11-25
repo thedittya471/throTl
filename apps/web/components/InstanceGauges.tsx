@@ -17,9 +17,9 @@ interface InstanceGaugesProps {
 }
 
 const NODES = [
-  { id: "instance-1", port: 4071, label: "NODE-01" },
-  { id: "instance-2", port: 4072, label: "NODE-02" },
-  { id: "instance-3", port: 4073, label: "NODE-03" },
+  { id: "instance-1", port: 4001, label: "NODE-01" },
+  { id: "instance-2", port: 4002, label: "NODE-02" },
+  { id: "instance-3", port: 4003, label: "NODE-03" },
 ];
 
 export function InstanceGauges({
