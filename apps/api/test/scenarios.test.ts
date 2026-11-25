@@ -126,6 +126,10 @@ describe("Coordinator Simulator Endpoints & Traffic Routing", () => {
     assert.equal(statusRes.status, 200);
     assert.equal(statusData.running, true);
     assert.equal(statusData.scenario, "login-brute-force");
+    assert.ok(statusData.algorithm);
+    assert.ok(statusData.mode);
+    assert.ok(statusData.limit);
+    assert.ok(statusData.windowSizeMs);
     assert.ok(statusData.stats.totalEmitted > 0, "Requests should have been emitted");
 
     // Pause simulator

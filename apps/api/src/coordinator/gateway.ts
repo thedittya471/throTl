@@ -228,6 +228,10 @@ export class CoordinatorGateway {
         paused: this.trafficEngine?.isPaused() ?? false,
         scenario: this.currentScenario,
         stats: this.trafficEngine?.getStats() ?? null,
+        algorithm: this.algorithm,
+        mode: this.mode,
+        limit: this.limit,
+        windowSizeMs: this.windowSizeMs,
       });
     });
 
