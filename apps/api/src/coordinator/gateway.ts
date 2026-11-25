@@ -19,6 +19,13 @@ import {
 } from "../traffic/index.js";
 import { MetricAggregator } from "../metrics/index.js";
 import { MetricsStreamManager } from "./stream.js";
+import {
+  validateMode,
+  validateAlgorithm,
+  validateConfigure,
+  validateStartSimulator,
+  validateCompare,
+} from "./validation.js";
 
 export interface InstanceTarget {
   id: string;
@@ -26,6 +33,7 @@ export interface InstanceTarget {
 }
 
 export interface CoordinatorConfig {
+  host?: string;
   port?: number;
   instances?: InstanceTarget[];
   spawnWorkers?: boolean;
@@ -60,6 +68,7 @@ function createCompareLimiter(
 }
 
 export class CoordinatorGateway {
+  readonly host: string;
   readonly port: number;
   instances: InstanceTarget[];
   mode: LimiterMode;
@@ -79,7 +88,8 @@ export class CoordinatorGateway {
   private currentScenario: string | null = null;
 
   constructor(config: CoordinatorConfig = {}) {
-    this.port = config.port || Number(process.env.PORT) || 4000;
+    this.host = config.host || process.env.HOST || "127.0.0.1";
+    this.port = config.port || Number(process.env.COORDINATOR_PORT || process.env.PORT) || 4000;
     this.mode = config.mode || "per-instance";
     this.algorithm = config.algorithm || "fixed-window";
     this.limit = config.limit || 100;
@@ -98,10 +108,14 @@ export class CoordinatorGateway {
     if (config.instances && config.instances.length > 0) {
       this.instances = config.instances;
     } else {
+      const defaultHost = this.host;
+      const port1 = Number(process.env.INSTANCE_1_PORT) || 4001;
+      const port2 = Number(process.env.INSTANCE_2_PORT) || 4002;
+      const port3 = Number(process.env.INSTANCE_3_PORT) || 4003;
       this.instances = [
-        { id: "instance-1", url: "http://localhost:4001" },
-        { id: "instance-2", url: "http://localhost:4002" },
-        { id: "instance-3", url: "http://localhost:4003" },
+        { id: "instance-1", url: `http://${defaultHost}:${port1}` },
+        { id: "instance-2", url: `http://${defaultHost}:${port2}` },
+        { id: "instance-3", url: `http://${defaultHost}:${port3}` },
       ];
     }
 
@@ -110,6 +124,7 @@ export class CoordinatorGateway {
         const url = new URL(target.url);
         return new InstanceServer({
           instanceId: target.id,
+          host: url.hostname || this.host,
           port: Number(url.port),
           mode: this.mode,
           algorithm: this.algorithm,
@@ -166,15 +181,15 @@ export class CoordinatorGateway {
     });
 
     this.app.post("/api/simulator/mode", async (req: Request, res: Response) => {
-      const { mode } = req.body;
-      if (mode !== "per-instance" && mode !== "shared") {
-        res.status(400).json({ error: "Invalid mode. Use 'per-instance' or 'shared'." });
+      const validation = validateMode(req.body?.mode);
+      if (!validation.ok) {
+        res.status(400).json({ error: "Validation Error", message: validation.error, field: validation.field });
         return;
       }
 
-      this.mode = mode;
+      this.mode = validation.data;
 
-      await this.broadcastConfig({ mode });
+      await this.broadcastConfig({ mode: this.mode });
 
       res.json({
         success: true,
@@ -183,13 +198,21 @@ export class CoordinatorGateway {
     });
 
     this.app.post("/api/simulator/algorithm", async (req: Request, res: Response) => {
-      const { algorithm, limit, windowSizeMs, refillRatePerSec, leakRatePerSec } = req.body;
+      if (!req.body || req.body.algorithm === undefined) {
+        res.status(400).json({ error: "Validation Error", message: "algorithm is required", field: "algorithm" });
+        return;
+      }
+      const validation = validateConfigure(req.body);
+      if (!validation.ok) {
+        res.status(400).json({ error: "Validation Error", message: validation.error, field: validation.field });
+        return;
+      }
 
-      if (algorithm) this.algorithm = algorithm;
-      if (limit) this.limit = Number(limit);
-      if (windowSizeMs) this.windowSizeMs = Number(windowSizeMs);
-      if (refillRatePerSec) this.refillRatePerSec = Number(refillRatePerSec);
-      if (leakRatePerSec) this.leakRatePerSec = Number(leakRatePerSec);
+      if (validation.data.algorithm) this.algorithm = validation.data.algorithm;
+      if (validation.data.limit !== undefined) this.limit = validation.data.limit;
+      if (validation.data.windowSizeMs !== undefined) this.windowSizeMs = validation.data.windowSizeMs;
+      if (validation.data.refillRatePerSec !== undefined) this.refillRatePerSec = validation.data.refillRatePerSec;
+      if (validation.data.leakRatePerSec !== undefined) this.leakRatePerSec = validation.data.leakRatePerSec;
 
       await this.broadcastConfig({
         algorithm: this.algorithm,
@@ -252,20 +275,21 @@ export class CoordinatorGateway {
     });
 
     this.app.post("/api/simulator/compare", async (req: Request, res: Response) => {
-      const {
-        algoA = "fixed-window",
-        algoB = "sliding-window-counter",
-        scenario = "window-boundary",
-        limit = 100,
-        windowSizeMs = 60_000,
-        refillRatePerSec = 10,
-        leakRatePerSec = 10,
-      } = req.body || {};
+      const validation = validateCompare(req.body);
+      if (!validation.ok) {
+        res.status(400).json({ error: "Validation Error", message: validation.error, field: validation.field });
+        return;
+      }
 
-      const numLimit = Number(limit) || 100;
-      const numWindow = Number(windowSizeMs) || 60_000;
-      const numRefill = Number(refillRatePerSec) || 10;
-      const numLeak = Number(leakRatePerSec) || 10;
+      const {
+        algoA,
+        algoB,
+        scenario,
+        limit: numLimit,
+        windowSizeMs: numWindow,
+        refillRatePerSec: numRefill,
+        leakRatePerSec: numLeak,
+      } = validation.data;
 
       const limiterA = createCompareLimiter(algoA as AlgorithmType, {
         limit: numLimit,
@@ -439,45 +463,34 @@ export class CoordinatorGateway {
     });
 
     this.app.post("/api/simulator/start", (req: Request, res: Response) => {
-      const {
-        scenario,
-        targetRps,
-        clientCount,
-        pattern,
-        seed,
-        route,
-        cost,
-        durationMs,
-        ...rest
-      } = req.body || {};
+      const validation = validateStartSimulator(req.body);
+      if (!validation.ok) {
+        res.status(400).json({ error: "Validation Error", message: validation.error, field: validation.field });
+        return;
+      }
 
       if (this.trafficEngine && this.trafficEngine.isRunning()) {
         this.trafficEngine.stop();
       }
 
-      let engineConfig: TrafficEngineConfig = { ...rest };
+      let engineConfig: TrafficEngineConfig = { ...(req.body || {}) };
 
-      if (scenario) {
-        if (!PRESET_SCENARIOS[scenario as ScenarioName]) {
-          res.status(400).json({
-            error: `Unknown scenario: ${scenario}. Available: ${Object.keys(PRESET_SCENARIOS).join(", ")}`,
-          });
-          return;
-        }
-        const preset = getPresetScenario(scenario as ScenarioName);
-        this.currentScenario = scenario;
+      if (validation.data.scenario) {
+        const preset = getPresetScenario(validation.data.scenario);
+        this.currentScenario = validation.data.scenario;
         engineConfig = { ...preset, ...engineConfig };
       } else {
         this.currentScenario = "custom";
       }
 
-      if (targetRps !== undefined) engineConfig.targetRps = Number(targetRps);
-      if (clientCount !== undefined) engineConfig.clientCount = Number(clientCount);
-      if (pattern !== undefined) engineConfig.pattern = pattern;
-      if (seed !== undefined) engineConfig.seed = Number(seed);
-      if (route !== undefined) engineConfig.route = route;
-      if (cost !== undefined) engineConfig.cost = Number(cost);
-      if (durationMs !== undefined) engineConfig.durationMs = Number(durationMs);
+      if (validation.data.targetRps !== undefined) engineConfig.targetRps = validation.data.targetRps;
+      if (validation.data.clientCount !== undefined) engineConfig.clientCount = validation.data.clientCount;
+      if (validation.data.pattern !== undefined) engineConfig.pattern = validation.data.pattern;
+      if (validation.data.seed !== undefined) engineConfig.seed = validation.data.seed;
+      if (validation.data.route !== undefined) engineConfig.route = validation.data.route;
+      if (validation.data.cost !== undefined) engineConfig.cost = validation.data.cost;
+      if (validation.data.durationMs !== undefined) engineConfig.durationMs = validation.data.durationMs;
+      if (validation.data.burstMultiplier !== undefined) engineConfig.burstMultiplier = validation.data.burstMultiplier;
 
       engineConfig.onRequest = async (event: TrafficEvent) => {
         try {
@@ -529,14 +542,18 @@ export class CoordinatorGateway {
     });
 
     this.app.post("/api/simulator/configure", async (req: Request, res: Response) => {
-      const { mode, algorithm, limit, windowSizeMs, refillRatePerSec, leakRatePerSec } = req.body || {};
+      const validation = validateConfigure(req.body || {});
+      if (!validation.ok) {
+        res.status(400).json({ error: "Validation Error", message: validation.error, field: validation.field });
+        return;
+      }
 
-      if (mode) this.mode = mode;
-      if (algorithm) this.algorithm = algorithm;
-      if (limit) this.limit = Number(limit);
-      if (windowSizeMs) this.windowSizeMs = Number(windowSizeMs);
-      if (refillRatePerSec) this.refillRatePerSec = Number(refillRatePerSec);
-      if (leakRatePerSec) this.leakRatePerSec = Number(leakRatePerSec);
+      if (validation.data.mode) this.mode = validation.data.mode;
+      if (validation.data.algorithm) this.algorithm = validation.data.algorithm;
+      if (validation.data.limit !== undefined) this.limit = validation.data.limit;
+      if (validation.data.windowSizeMs !== undefined) this.windowSizeMs = validation.data.windowSizeMs;
+      if (validation.data.refillRatePerSec !== undefined) this.refillRatePerSec = validation.data.refillRatePerSec;
+      if (validation.data.leakRatePerSec !== undefined) this.leakRatePerSec = validation.data.leakRatePerSec;
 
       await this.broadcastConfig({
         mode: this.mode,
@@ -728,7 +745,7 @@ export class CoordinatorGateway {
     }
 
     return new Promise((resolve) => {
-      this.server = this.app.listen(this.port, () => {
+      this.server = this.app.listen(this.port, this.host, () => {
         resolve();
       });
     });
@@ -759,5 +776,5 @@ export class CoordinatorGateway {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const coordinator = new CoordinatorGateway({ spawnWorkers: true });
   await coordinator.start();
-  console.log(`[coordinator] running on port ${coordinator.port} with 3 cluster instances`);
+  console.log(`[coordinator] running on ${coordinator.host}:${coordinator.port} with 3 cluster instances`);
 }

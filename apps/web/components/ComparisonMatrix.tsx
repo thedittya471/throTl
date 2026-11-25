@@ -16,6 +16,7 @@ import {
   Activity,
   Sliders,
 } from "lucide-react";
+import { formatComparisonSummary } from "../lib/comparison";
 
 export type AlgorithmType =
   | "fixed-window"
@@ -333,82 +334,78 @@ export function ComparisonMatrix() {
       )}
 
       {/* Divergence Radar & Invariant Proof Banner */}
-      {comparisonData && (
-        <div
-          className={`relative border p-3.5 sm:p-5 transition-all max-w-full ${
-            comparisonData.boundaryLeakDetected
-              ? "border-[#FF5400] bg-[#FF5400]/10"
-              : comparisonData.divergence !== 0
-              ? "border-amber-500/50 bg-amber-500/10"
-              : "border-emerald-500/30 bg-emerald-500/5"
-          }`}
-        >
-          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-            <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
-              {comparisonData.boundaryLeakDetected ? (
-                <AlertTriangle className="w-6 h-6 text-[#FF5400] shrink-0 mt-0.5" />
-              ) : comparisonData.divergence !== 0 ? (
-                <ArrowRightLeft className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
-              ) : (
-                <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-              )}
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs uppercase tracking-widest font-bold text-white break-words">
-                    {comparisonData.boundaryLeakDetected
-                      ? "Boundary Burst Exploit Invariant: Leaked Traffic Detected"
-                      : comparisonData.divergence !== 0
-                      ? `Algorithmic Divergence: ${Math.abs(comparisonData.divergence)} Request Delta`
-                      : "Strict Mathematical Parity: Identical Enforcement"}
-                  </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 uppercase bg-black/40 border border-white/10 text-white/80 shrink-0">
-                    Δ = {comparisonData.divergence > 0 ? `+${comparisonData.divergence}` : comparisonData.divergence} REQS
-                  </span>
-                </div>
-                <p className="text-xs font-mono text-white/70 mt-1 max-w-4xl break-words">
-                  {comparisonData.boundaryLeakDetected ? (
-                    <>
-                      <strong className="text-[#FF5400]">Boundary Leak Proved:</strong> Fixed Window admitted{" "}
-                      <span className="text-[#FF5400] font-bold">{comparisonData.algoA.allowed} requests</span> across the 60s
-                      window boundary (100% exploit over-admission). Sliding Window Counter strictly throttled to{" "}
-                      <span className="text-emerald-400 font-bold">{comparisonData.algoB.allowed} requests</span> via weighted
-                      previous-window estimation.
-                    </>
-                  ) : comparisonData.divergence !== 0 ? (
-                    <>
-                      Under {comparisonData.scenario} traffic, {getAlgoMeta(comparisonData.algoA.algorithm).label} admitted{" "}
-                      <span className="text-white font-bold">{comparisonData.algoA.allowed}</span> requests while{" "}
-                      {getAlgoMeta(comparisonData.algoB.algorithm).label} admitted{" "}
-                      <span className="text-white font-bold">{comparisonData.algoB.allowed}</span> requests.
-                    </>
-                  ) : (
-                    <>Both algorithms made identical admission decisions for all {comparisonData.totalRequests} requests.</>
-                  )}
-                </p>
-              </div>
-            </div>
+      {comparisonData && (() => {
+        const summary = formatComparisonSummary(
+          comparisonData,
+          (id) => getAlgoMeta(id as AlgorithmType).label
+        );
 
-            {/* Quick Metrics Badge */}
-            <div className="flex items-center justify-around sm:justify-end gap-4 sm:gap-6 w-full lg:w-auto shrink-0 bg-black/40 px-3 sm:px-4 py-2 border border-white/5">
-              <div className="text-right">
-                <div className="text-[9px] font-mono text-white/40 uppercase">Replay Requests</div>
-                <div className="text-base font-mono font-bold text-white">{comparisonData.totalRequests}</div>
+        return (
+          <div
+            className={`relative border p-3.5 sm:p-5 transition-all max-w-full ${
+              comparisonData.boundaryLeakDetected
+                ? "border-[#FF5400] bg-[#FF5400]/10"
+                : comparisonData.divergence !== 0
+                ? "border-amber-500/50 bg-amber-500/10"
+                : "border-emerald-500/30 bg-emerald-500/5"
+            }`}
+          >
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+              <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
+                {comparisonData.boundaryLeakDetected ? (
+                  <AlertTriangle className="w-6 h-6 text-[#FF5400] shrink-0 mt-0.5" />
+                ) : comparisonData.divergence !== 0 ? (
+                  <ArrowRightLeft className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+                )}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs uppercase tracking-widest font-bold text-white break-words">
+                      {summary.headline}
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 uppercase bg-black/40 border border-white/10 text-white/80 shrink-0">
+                      Δ = {summary.signedDeltaText} REQS
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-white/70 mt-1 max-w-4xl break-words">
+                    {summary.detail.isBoundaryLeak ? (
+                      <>
+                        <strong className="text-[#FF5400]">Boundary Leak Proved:</strong> {summary.detail.leakedLabel} admitted{" "}
+                        <span className="text-[#FF5400] font-bold">{summary.detail.leakedAllowed} requests</span> across the{" "}
+                        {summary.detail.windowSec}s window boundary ({summary.detail.exploitPercent}% exploit over-admission).{" "}
+                        {summary.detail.throttledLabel} strictly throttled to{" "}
+                        <span className="text-emerald-400 font-bold">{summary.detail.throttledAllowed} requests</span>.
+                      </>
+                    ) : (
+                      <>{summary.detail.fallbackText}</>
+                    )}
+                  </p>
+                </div>
               </div>
-              <div className="w-[1px] h-7 bg-white/10" />
-              <div className="text-right">
-                <div className="text-[9px] font-mono text-white/40 uppercase">Divergence %</div>
-                <div
-                  className={`text-base font-mono font-bold ${
-                    comparisonData.divergence !== 0 ? "text-[#FF5400]" : "text-emerald-400"
-                  }`}
-                >
-                  {((Math.abs(comparisonData.divergence) / comparisonData.totalRequests) * 100).toFixed(1)}%
+
+              {/* Quick Metrics Badge */}
+              <div className="flex items-center justify-around sm:justify-end gap-4 sm:gap-6 w-full lg:w-auto shrink-0 bg-black/40 px-3 sm:px-4 py-2 border border-white/5">
+                <div className="text-right">
+                  <div className="text-[9px] font-mono text-white/40 uppercase">Replay Requests</div>
+                  <div className="text-base font-mono font-bold text-white">{comparisonData.totalRequests}</div>
+                </div>
+                <div className="w-[1px] h-7 bg-white/10" />
+                <div className="text-right">
+                  <div className="text-[9px] font-mono text-white/40 uppercase">Divergence %</div>
+                  <div
+                    className={`text-base font-mono font-bold ${
+                      comparisonData.divergence !== 0 ? "text-[#FF5400]" : "text-emerald-400"
+                    }`}
+                  >
+                    {((Math.abs(comparisonData.divergence) / comparisonData.totalRequests) * 100).toFixed(1)}%
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Side-by-Side Dual Engine Comparison Cards */}
       {comparisonData && (

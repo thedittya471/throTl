@@ -26,6 +26,7 @@ export type AlgorithmType =
 
 export interface InstanceConfig {
   instanceId?: string;
+  host?: string;
   port?: number;
   mode?: LimiterMode;
   algorithm?: AlgorithmType;
@@ -38,6 +39,7 @@ export interface InstanceConfig {
 
 export class InstanceServer {
   readonly instanceId: string;
+  readonly host: string;
   readonly port: number;
 
   mode: LimiterMode;
@@ -55,6 +57,7 @@ export class InstanceServer {
 
   constructor(config: InstanceConfig = {}) {
     this.instanceId = config.instanceId || process.env.INSTANCE_ID || "instance-1";
+    this.host = config.host || process.env.HOST || "127.0.0.1";
     this.port = config.port || Number(process.env.PORT) || 4001;
 
     this.mode = config.mode || (process.env.LIMITER_MODE as LimiterMode) || "per-instance";
@@ -292,7 +295,7 @@ export class InstanceServer {
 
   async start(): Promise<void> {
     return new Promise((resolve) => {
-      this.server = this.app.listen(this.port, () => {
+      this.server = this.app.listen(this.port, this.host, () => {
         resolve();
       });
     });
@@ -315,5 +318,5 @@ export class InstanceServer {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const instance = new InstanceServer();
   await instance.start();
-  console.log(`[${instance.instanceId}] running on port ${instance.port} (mode: ${instance.mode}, algorithm: ${instance.algorithm})`);
+  console.log(`[${instance.instanceId}] running on ${instance.host}:${instance.port} (mode: ${instance.mode}, algorithm: ${instance.algorithm})`);
 }
