@@ -12,6 +12,8 @@ export interface TrafficEngineConfig {
   pattern?: TrafficPattern;
   targetRps?: number;
   clientCount?: number;
+  clientId?: string;
+  cost?: number;
   durationMs?: number;
   windowSizeMs?: number;
   burstMultiplier?: number;
@@ -79,6 +81,8 @@ export class TrafficEngine extends EventEmitter {
       pattern: config.pattern ?? "steady",
       targetRps: config.targetRps ?? 1000,
       clientCount: config.clientCount ?? 1000,
+      clientId: config.clientId ?? "",
+      cost: config.cost ?? 1,
       durationMs: config.durationMs ?? 0,
       windowSizeMs: config.windowSizeMs ?? 60_000,
       burstMultiplier: config.burstMultiplier ?? 5,
@@ -98,6 +102,10 @@ export class TrafficEngine extends EventEmitter {
   }
 
   private initClientPool(): void {
+    if (this.config.clientId) {
+      this.clientPool = [this.config.clientId];
+      return;
+    }
     this.clientPool = Array.from(
       { length: this.config.clientCount },
       (_, i) => `client-${String(i + 1).padStart(3, "0")}`
@@ -190,7 +198,7 @@ export class TrafficEngine extends EventEmitter {
       const event: TrafficEvent = {
         clientId,
         timestampMs: eventTimeMs,
-        cost: 1,
+        cost: this.config.cost,
         route: this.config.route,
         pattern: this.config.pattern,
         sequence: this.sequence,

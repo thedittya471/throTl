@@ -236,8 +236,18 @@ export class InstanceServer {
       });
     };
 
-    this.app.all("/api/check", handleEvaluation);
-    this.app.all("/api/resource", handleEvaluation);
+    const limiterRoutes = [
+      "/api/check",
+      "/api/resource",
+      "/api/login",
+      "/api/search",
+      "/api/pay",
+      "/api/upload",
+    ];
+
+    limiterRoutes.forEach((route) => {
+      this.app.all(route, handleEvaluation);
+    });
   }
 
   getApp(): Express {

@@ -1,6 +1,14 @@
 import express, { type Request, type Response, type Express } from "express";
 import { Server } from "node:http";
 import { InstanceServer, type LimiterMode, type AlgorithmType } from "../instance.js";
+import {
+  TrafficEngine,
+  type TrafficEngineConfig,
+  type TrafficEvent,
+  type ScenarioName,
+  PRESET_SCENARIOS,
+  getPresetScenario,
+} from "../traffic/index.js";
 
 export interface InstanceTarget {
   id: string;
@@ -33,6 +41,8 @@ export class CoordinatorGateway {
   private server?: Server;
   private spawnedWorkers: InstanceServer[] = [];
   private rrIndex: number = 0;
+  private trafficEngine: TrafficEngine | null = null;
+  private currentScenario: string | null = null;
 
   constructor(config: CoordinatorConfig = {}) {
     this.port = config.port || Number(process.env.PORT) || 4000;
@@ -162,6 +172,139 @@ export class CoordinatorGateway {
       res.json({ success: true, reset: true });
     });
 
+    this.app.get("/api/simulator/scenarios", (_req: Request, res: Response) => {
+      res.json({ scenarios: PRESET_SCENARIOS });
+    });
+
+    this.app.get("/api/simulator/status", (_req: Request, res: Response) => {
+      res.json({
+        running: this.trafficEngine?.isRunning() ?? false,
+        paused: this.trafficEngine?.isPaused() ?? false,
+        scenario: this.currentScenario,
+        stats: this.trafficEngine?.getStats() ?? null,
+      });
+    });
+
+    this.app.post("/api/simulator/start", (req: Request, res: Response) => {
+      const {
+        scenario,
+        targetRps,
+        clientCount,
+        pattern,
+        seed,
+        route,
+        cost,
+        durationMs,
+        ...rest
+      } = req.body || {};
+
+      if (this.trafficEngine && this.trafficEngine.isRunning()) {
+        this.trafficEngine.stop();
+      }
+
+      let engineConfig: TrafficEngineConfig = { ...rest };
+
+      if (scenario) {
+        if (!PRESET_SCENARIOS[scenario as ScenarioName]) {
+          res.status(400).json({
+            error: `Unknown scenario: ${scenario}. Available: ${Object.keys(PRESET_SCENARIOS).join(", ")}`,
+          });
+          return;
+        }
+        const preset = getPresetScenario(scenario as ScenarioName);
+        this.currentScenario = scenario;
+        engineConfig = { ...preset, ...engineConfig };
+      } else {
+        this.currentScenario = "custom";
+      }
+
+      if (targetRps !== undefined) engineConfig.targetRps = Number(targetRps);
+      if (clientCount !== undefined) engineConfig.clientCount = Number(clientCount);
+      if (pattern !== undefined) engineConfig.pattern = pattern;
+      if (seed !== undefined) engineConfig.seed = Number(seed);
+      if (route !== undefined) engineConfig.route = route;
+      if (cost !== undefined) engineConfig.cost = Number(cost);
+      if (durationMs !== undefined) engineConfig.durationMs = Number(durationMs);
+
+      engineConfig.onRequest = async (event: TrafficEvent) => {
+        try {
+          await this.dispatchTarget(event.route, {
+            "x-client-id": event.clientId,
+            "x-timestamp": String(event.timestampMs),
+            "x-cost": String(event.cost),
+          });
+        } catch {
+          // Ignore worker errors in background simulation
+        }
+      };
+
+      this.trafficEngine = new TrafficEngine(engineConfig);
+      this.trafficEngine.start();
+
+      res.json({
+        success: true,
+        running: true,
+        scenario: this.currentScenario,
+        config: this.trafficEngine.config,
+      });
+    });
+
+    this.app.post("/api/simulator/stop", (_req: Request, res: Response) => {
+      if (!this.trafficEngine || !this.trafficEngine.isRunning()) {
+        res.json({ success: true, running: false, stats: null });
+        return;
+      }
+
+      const stats = this.trafficEngine.getStats();
+      this.trafficEngine.stop();
+
+      res.json({ success: true, running: false, stats });
+    });
+
+    this.app.post("/api/simulator/pause", (_req: Request, res: Response) => {
+      if (this.trafficEngine) {
+        this.trafficEngine.pause();
+      }
+      res.json({ success: true, paused: this.trafficEngine?.isPaused() ?? false });
+    });
+
+    this.app.post("/api/simulator/resume", (_req: Request, res: Response) => {
+      if (this.trafficEngine) {
+        this.trafficEngine.resume();
+      }
+      res.json({ success: true, paused: this.trafficEngine?.isPaused() ?? false });
+    });
+
+    this.app.post("/api/simulator/configure", async (req: Request, res: Response) => {
+      const { mode, algorithm, limit, windowSizeMs, refillRatePerSec, leakRatePerSec } = req.body || {};
+
+      if (mode) this.mode = mode;
+      if (algorithm) this.algorithm = algorithm;
+      if (limit) this.limit = Number(limit);
+      if (windowSizeMs) this.windowSizeMs = Number(windowSizeMs);
+      if (refillRatePerSec) this.refillRatePerSec = Number(refillRatePerSec);
+      if (leakRatePerSec) this.leakRatePerSec = Number(leakRatePerSec);
+
+      await this.broadcastConfig({
+        mode: this.mode,
+        algorithm: this.algorithm,
+        limit: this.limit,
+        windowSizeMs: this.windowSizeMs,
+        refillRatePerSec: this.refillRatePerSec,
+        leakRatePerSec: this.leakRatePerSec,
+      });
+
+      res.json({
+        success: true,
+        mode: this.mode,
+        algorithm: this.algorithm,
+        limit: this.limit,
+        windowSizeMs: this.windowSizeMs,
+        refillRatePerSec: this.refillRatePerSec,
+        leakRatePerSec: this.leakRatePerSec,
+      });
+    });
+
     const dispatchRoundRobin = async (req: Request, res: Response) => {
       if (this.instances.length === 0) {
         res.status(503).json({ error: "No instances registered." });
@@ -215,8 +358,35 @@ export class CoordinatorGateway {
       }
     };
 
-    this.app.all("/api/check", dispatchRoundRobin);
-    this.app.all("/api/resource", dispatchRoundRobin);
+    const limiterRoutes = [
+      "/api/check",
+      "/api/resource",
+      "/api/login",
+      "/api/search",
+      "/api/pay",
+      "/api/upload",
+    ];
+
+    limiterRoutes.forEach((route) => {
+      this.app.all(route, dispatchRoundRobin);
+    });
+  }
+
+  async dispatchTarget(route: string, headers: Record<string, string>): Promise<any> {
+    if (this.instances.length === 0) return null;
+    const target = this.instances[this.rrIndex % this.instances.length];
+    this.rrIndex++;
+
+    const targetUrl = `${target.url}${route}`;
+    const resp = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({}),
+    });
+    return resp;
   }
 
   async broadcastConfig(config: Record<string, any>): Promise<void> {
@@ -252,6 +422,11 @@ export class CoordinatorGateway {
   }
 
   async stop(): Promise<void> {
+    if (this.trafficEngine) {
+      this.trafficEngine.stop();
+      this.trafficEngine = null;
+    }
+
     if (this.server) {
       await new Promise<void>((resolve, reject) => {
         this.server!.close((err) => (err ? reject(err) : resolve()));
