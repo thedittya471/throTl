@@ -12,6 +12,7 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "test:benchmarks": "turbo run test:benchmarks",
     "redis:up": "docker-compose up -d redis",
     "redis:down": "docker-compose down"
   },

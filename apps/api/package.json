@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/coordinator/gateway.ts",
-    "test": "node --test test/**/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "test:benchmarks": "node --test test/benchmarks/**/*.test.ts"
   },
   "dependencies": {
     "@throtl/rate-limiter": "*",
