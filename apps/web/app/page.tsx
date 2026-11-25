@@ -96,7 +96,9 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Poll simulator status periodically
+  const initialLoadedRef = useRef<boolean>(false);
+
+  // Poll simulator status periodically and sync active configuration
   useEffect(() => {
     async function checkStatus() {
       try {
@@ -108,12 +110,20 @@ export default function Dashboard() {
           if (data.stats) {
             setStats(data.stats);
           }
+          if (!initialLoadedRef.current) {
+            initialLoadedRef.current = true;
+            if (data.algorithm) setAlgorithm(data.algorithm);
+            if (data.mode) setMode(data.mode);
+            if (data.limit) setLimit(data.limit);
+            if (data.windowSizeMs) setWindowSizeMs(data.windowSizeMs);
+          }
         }
       } catch {
         // Fallback
       }
     }
 
+    checkStatus();
     const interval = setInterval(checkStatus, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -223,6 +233,9 @@ export default function Dashboard() {
     try {
       await fetch("/api/simulator/reset", { method: "POST" });
       setStats({ totalEmitted: 0, currentRps: 0, elapsedMs: 0 });
+      setIsRunning(false);
+      setIsPaused(false);
+      setLatestTick(null);
     } catch (err) {
       console.error("Failed to reset cluster", err);
     }
@@ -243,6 +256,14 @@ export default function Dashboard() {
       }
 
       if (e.code === "Space") {
+        if (
+          target &&
+          (target.tagName === "BUTTON" ||
+            target.closest("button") ||
+            target.getAttribute("role") === "button")
+        ) {
+          return;
+        }
         e.preventDefault();
         if (!isRunning) {
           handleStart();
@@ -301,7 +322,7 @@ export default function Dashboard() {
               </h1>
             </div>
 
-            <div className="flex items-center gap-4 font-mono text-[11px] text-carbon-400">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 font-mono text-[11px] text-carbon-400">
               <div className="border border-white/[0.08] bg-carbon-900/60 px-3 py-1.5">
                 <span className="text-carbon-500">ENGINE:</span>{" "}
                 <span className="font-bold text-white uppercase">{algorithm}</span>
@@ -315,7 +336,7 @@ export default function Dashboard() {
         </section>
 
         {/* View Mode Switcher */}
-        <div data-tour="view-mode" className="flex items-center gap-3 border-b border-white/[0.08] pb-4">
+        <div data-tour="view-mode" className="flex flex-wrap items-center gap-2 sm:gap-3 border-b border-white/[0.08] pb-4">
           <button
             onClick={() => setViewMode("cockpit")}
             className={`px-4 py-2 font-mono text-xs uppercase tracking-wider transition-all border ${

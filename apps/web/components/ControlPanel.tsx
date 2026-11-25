@@ -196,6 +196,26 @@ export function ControlPanel({
           </span>
         </div>
 
+        {/* Mobile Algorithm Selector (< sm) */}
+        <div className="block sm:hidden mb-3">
+          <label htmlFor="mobile-algo-select" className="sr-only">
+            Select Rate Limiting Algorithm
+          </label>
+          <select
+            id="mobile-algo-select"
+            value={algorithm}
+            onChange={(e) => onAlgorithmChange(e.target.value as AlgorithmType)}
+            className="w-full border border-white/[0.08] bg-carbon-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-studio-orange"
+            aria-label="Select rate limiting algorithm"
+          >
+            {ALGORITHMS.map((algo) => (
+              <option key={algo.id} value={algo.id}>
+                [{algo.index}] {algo.name} — {algo.complexity}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {ALGORITHMS.map((algo) => {
             const isSelected = algorithm === algo.id;
@@ -203,6 +223,8 @@ export function ControlPanel({
               <button
                 key={algo.id}
                 onClick={() => onAlgorithmChange(algo.id)}
+                aria-label={`Select algorithm: ${algo.name}`}
+                aria-pressed={isSelected}
                 className={`corner-crosshair group relative flex flex-col justify-between p-4 text-left transition-all duration-150 ${
                   isSelected
                     ? "studio-card-active border-studio-orange/80 shadow-lg shadow-studio-orange/10"
@@ -259,6 +281,8 @@ export function ControlPanel({
             <div className="grid grid-cols-2 gap-2 p-1 border border-white/[0.08] bg-carbon-950">
               <button
                 onClick={() => onModeChange("per-instance")}
+                aria-label="Set mode to Per-Instance local memory"
+                aria-pressed={mode === "per-instance"}
                 className={`py-2 px-3 font-mono text-[11px] text-left transition-all ${
                   mode === "per-instance"
                     ? "bg-carbon-800 text-white border-l-2 border-amber-400 shadow-sm"
@@ -271,6 +295,8 @@ export function ControlPanel({
 
               <button
                 onClick={() => onModeChange("shared")}
+                aria-label="Set mode to Shared Redis atomic Lua"
+                aria-pressed={mode === "shared"}
                 className={`py-2 px-3 font-mono text-[11px] text-left transition-all ${
                   mode === "shared"
                     ? "bg-carbon-800 text-white border-l-2 border-studio-orange shadow-sm"
@@ -322,6 +348,8 @@ export function ControlPanel({
                   <button
                     key={p.id}
                     onClick={() => onScenarioChange(p.id)}
+                    aria-label={`Select preset: ${p.name}`}
+                    aria-pressed={isSelected}
                     className={`w-full flex items-center justify-between px-3 py-2 text-left transition-all ${
                       isSelected
                         ? "border border-studio-orange/60 bg-studio-orangeSubtle text-white"
@@ -403,6 +431,7 @@ export function ControlPanel({
                 value={targetRps}
                 onChange={(e) => onTargetRpsChange(Number(e.target.value))}
                 className="w-full cursor-pointer"
+                aria-label="Target request rate in requests per second"
               />
               <div className="flex justify-between gap-1 pt-1">
                 {[50, 200, 500, 1000].map((v) => (
@@ -434,6 +463,7 @@ export function ControlPanel({
                 value={clientCount}
                 onChange={(e) => onClientCountChange(Number(e.target.value))}
                 className="w-full cursor-pointer"
+                aria-label="Virtual client pool size"
               />
               <div className="flex justify-between gap-1 pt-1">
                 {[1, 10, 100, 500, 1000].map((v) => (
@@ -454,13 +484,15 @@ export function ControlPanel({
 
             {/* Pattern Shape */}
             <div className="mt-4">
-              <label className="block font-mono text-[10px] text-carbon-400 uppercase mb-1">
+              <label htmlFor="pattern-select" className="block font-mono text-[10px] text-carbon-400 uppercase mb-1">
                 Arrival Distribution
               </label>
               <select
+                id="pattern-select"
                 value={pattern}
                 onChange={(e) => onPatternChange(e.target.value as TrafficPattern)}
                 className="w-full border border-white/[0.08] bg-carbon-950 px-3 py-1.5 font-mono text-[11px] text-white outline-none focus:border-studio-orange"
+                aria-label="Traffic arrival distribution pattern"
               >
                 <option value="steady">STEADY (Uniform Arrival)</option>
                 <option value="burst">BURST (Multiplier Surges)</option>
@@ -538,7 +570,7 @@ export function ControlPanel({
         </div>
 
         {/* Real-time Status Readout */}
-        <div className="flex items-center gap-4 border border-white/[0.08] bg-carbon-950 px-4 py-2 font-mono text-[11px]">
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-start gap-3 sm:gap-4 border border-white/[0.08] bg-carbon-950 px-3 sm:px-4 py-2 font-mono text-[11px]">
           <div>
             <div className="text-[9px] text-carbon-500 uppercase tracking-wider">Engine State</div>
             <div className="flex items-center gap-1.5 font-bold mt-0.5">
