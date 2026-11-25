@@ -10,42 +10,69 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        cockpit: {
-          950: "#050811",
-          900: "#0a0f1d",
-          850: "#0f172a",
-          800: "#1e293b",
-          700: "#334155",
+        studio: {
+          orange: "#FF5400",
+          orangeHover: "#FF3D00",
+          orangeGlow: "rgba(255, 84, 0, 0.35)",
+          orangeSubtle: "rgba(255, 84, 0, 0.08)",
+          card: "#0c0c10",
+          cardElevated: "#121218",
+          border: "rgba(255, 255, 255, 0.07)",
+          borderLight: "rgba(255, 255, 255, 0.14)",
+          borderOrange: "rgba(255, 84, 0, 0.45)",
         },
-        cyber: {
-          cyan: "#06b6d4",
-          emerald: "#10b981",
-          violet: "#8b5cf6",
-          amber: "#f59e0b",
-          rose: "#f43f5e",
+        carbon: {
+          950: "#060608",
+          900: "#0a0a0e",
+          850: "#101015",
+          800: "#181820",
+          700: "#242430",
+          600: "#38384a",
+          500: "#525266",
+          400: "#76768e",
+          300: "#a3a3ba",
+          200: "#d1d1e0",
+          100: "#ededf5",
         },
+      },
+      fontFamily: {
+        sans: [
+          "-apple-system",
+          "BlinkMacSystemFont",
+          '"Segoe UI"',
+          "Roboto",
+          '"Helvetica Neue"',
+          "Arial",
+          "sans-serif",
+        ],
+        mono: [
+          '"SF Mono"',
+          "Menlo",
+          "Monaco",
+          "Consolas",
+          '"Liberation Mono"',
+          "monospace",
+        ],
+      },
+      letterSpacing: {
+        tighter: "-0.04em",
+        tight: "-0.02em",
+        widest: "0.15em",
+        mega: "0.25em",
       },
       animation: {
-        "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "glow-cyan": "glowCyan 3s ease-in-out infinite",
-        "glow-emerald": "glowEmerald 3s ease-in-out infinite",
-        "shimmer": "shimmer 2.5s linear infinite",
+        "pulse-subtle": "pulseSubtle 2.5s ease-in-out infinite",
+        "glow-orange": "glowOrange 2.5s ease-in-out infinite",
       },
       keyframes: {
-        glowCyan: {
-          "0%, 100%": { boxShadow: "0 0 15px -3px rgba(6, 182, 212, 0.3)" },
-          "50%": { boxShadow: "0 0 25px 2px rgba(6, 182, 212, 0.6)" },
+        pulseSubtle: {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.55" },
         },
-        glowEmerald: {
-          "0%, 100%": { boxShadow: "0 0 15px -3px rgba(16, 185, 129, 0.3)" },
-          "50%": { boxShadow: "0 0 25px 2px rgba(16, 185, 129, 0.6)" },
+        glowOrange: {
+          "0%, 100%": { boxShadow: "0 0 15px -3px rgba(255, 84, 0, 0.25)" },
+          "50%": { boxShadow: "0 0 25px 2px rgba(255, 84, 0, 0.5)" },
         },
-        shimmer: {
-          "100%": { transform: "translateX(100%)" },
-        },
-      },
-      backdropBlur: {
-        xs: "2px",
       },
     },
   },

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Activity, Shield, Cpu, RefreshCw, Zap, Server } from "lucide-react";
+import { Shield, RefreshCw, Radio, Terminal } from "lucide-react";
 
 interface HeaderProps {
   clusterMode: "per-instance" | "shared";
@@ -18,105 +18,94 @@ export function Header({
   onRefreshCluster,
 }: HeaderProps) {
   const [nodesAlive, setNodesAlive] = useState<number>(3);
+  const [lastPingMs, setLastPingMs] = useState<number>(1);
 
   useEffect(() => {
     async function checkCluster() {
+      const start = performance.now();
       try {
         const res = await fetch("/api/cluster/status");
         if (res.ok) {
           const data = await res.json();
           const alive = data.instances?.filter((i: any) => i.alive).length || 3;
           setNodesAlive(alive);
+          setLastPingMs(Math.max(1, Math.round(performance.now() - start)));
         }
       } catch {
         // Fallback
       }
     }
     checkCluster();
-    const interval = setInterval(checkCluster, 5000);
+    const interval = setInterval(checkCluster, 4000);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-cockpit-950/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-carbon-950/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-        {/* Brand / Logo */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 p-0.5 shadow-lg shadow-cyan-500/20">
-            <div className="flex h-full w-full items-center justify-center rounded-[10px] bg-slate-950">
-              <Zap className="h-5 w-5 text-cyan-400" />
+        {/* Brand / Title - Two26 Studio Editorial Style */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-studio-orange font-mono text-xs font-black text-carbon-950">
+              R
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-cyan-500" />
-            </span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-mono text-base font-bold tracking-tighter text-white uppercase">
+                RateLab
+              </span>
+              <span className="font-mono text-[10px] font-medium text-studio-orange tracking-widest">
+                [26]
+              </span>
+            </div>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-white font-mono">
-                RATE<span className="text-cyan-400">LAB</span>
-              </span>
-              <span className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-300">
-                v1.0 COCKPIT
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">Distributed Rate Limiter Telemetry</p>
+          <div className="hidden h-4 w-px bg-white/10 md:block" />
+
+          <div className="hidden items-center gap-2 font-mono text-[11px] text-carbon-400 md:flex">
+            <span className="text-carbon-500">//</span>
+            <span>HIGH-PRECISION BENCHMARK HARNESS</span>
           </div>
         </div>
 
-        {/* Live Status Indicators */}
-        <div className="flex items-center gap-3 sm:gap-4">
+        {/* Studio Status Bar */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
           {/* Active Mode Pill */}
-          <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs sm:flex">
-            <Shield className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-slate-400">Mode:</span>
+          <div className="hidden items-center gap-2 border border-white/[0.08] bg-carbon-900/90 px-3 py-1 font-mono text-[11px] sm:flex">
+            <span className="text-carbon-500">MODE:</span>
             <span
-              className={`font-semibold uppercase tracking-wider ${
-                clusterMode === "shared" ? "text-emerald-400" : "text-amber-400"
+              className={`font-semibold tracking-wider ${
+                clusterMode === "shared" ? "text-studio-orange" : "text-amber-400"
               }`}
             >
-              {clusterMode === "shared" ? "Shared (Redis Lua)" : "Per-Instance (Local)"}
+              {clusterMode === "shared" ? "REDIS_LUA" : "PER_INSTANCE"}
             </span>
           </div>
 
-          {/* Cluster Nodes Badge */}
-          <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs">
-            <Server className="h-3.5 w-3.5 text-cyan-400" />
-            <span className="hidden text-slate-400 sm:inline">Cluster:</span>
-            <span className="font-mono font-medium text-slate-200">
-              {nodesAlive}/3 Nodes
+          {/* Cluster Nodes Pill */}
+          <div className="flex items-center gap-2 border border-white/[0.08] bg-carbon-900/90 px-3 py-1 font-mono text-[11px]">
+            <span className="text-carbon-500">NODES:</span>
+            <span className="font-medium text-white">
+              {nodesAlive}/3
             </span>
-            <span className="flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
           </div>
 
-          {/* SSE Telemetry Stream Badge */}
-          <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs">
-            <Activity className="h-3.5 w-3.5 text-cyan-400" />
-            <span className="hidden text-slate-400 sm:inline">SSE:</span>
-            <span
-              className={`font-mono text-xs font-semibold ${
-                isStreaming ? "text-emerald-400" : "text-slate-400"
-              }`}
-            >
-              {isStreaming ? "60 FPS LIVE" : "DISCONNECTED"}
+          {/* SSE Live Stream Status */}
+          <div className="flex items-center gap-2 border border-white/[0.08] bg-carbon-900/90 px-3 py-1 font-mono text-[11px]">
+            <Radio className={`h-3 w-3 ${isStreaming ? "text-studio-orange animate-pulse" : "text-carbon-500"}`} />
+            <span className="hidden sm:inline text-carbon-500">SSE:</span>
+            <span className={isStreaming ? "font-semibold text-white" : "text-carbon-500"}>
+              {isStreaming ? `${lastPingMs}ms` : "OFFLINE"}
             </span>
-            <span
-              className={`flex h-2 w-2 rounded-full ${
-                isStreaming
-                  ? "bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.9)]"
-                  : "bg-slate-600"
-              }`}
-            />
           </div>
 
           {onRefreshCluster && (
             <button
               onClick={onRefreshCluster}
-              aria-label="Refresh Cluster State"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/80 text-slate-400 transition hover:border-slate-700 hover:text-slate-200"
+              title="Reset Cluster"
+              className="flex h-7 w-7 items-center justify-center border border-white/[0.08] bg-carbon-900/90 text-carbon-400 transition hover:border-studio-orange/50 hover:text-studio-orange"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className="h-3 w-3" />
             </button>
           )}
         </div>
