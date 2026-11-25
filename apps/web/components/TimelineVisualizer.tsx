@@ -355,7 +355,7 @@ export function TimelineVisualizer({
   const latestData = bufferRef.current[bufferRef.current.length - 1];
 
   return (
-    <div className="studio-card corner-crosshair p-5 space-y-3">
+    <div data-tour="telemetry-timeline" className="studio-card corner-crosshair p-5 space-y-3">
       {/* HUD Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/[0.06] pb-3 gap-2">
         <div className="flex items-center gap-2 font-mono text-[11px]">

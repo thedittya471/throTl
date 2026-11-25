@@ -14,6 +14,7 @@ import { TimelineVisualizer } from "../components/TimelineVisualizer";
 import { InstanceGauges } from "../components/InstanceGauges";
 import { AlgorithmStateCard } from "../components/AlgorithmStateCard";
 import { ComparisonMatrix } from "../components/ComparisonMatrix";
+import { GuidedTour } from "../components/GuidedTour";
 
 export default function Dashboard() {
   const [viewMode, setViewMode] = useState<"cockpit" | "comparison">("cockpit");
@@ -29,6 +30,7 @@ export default function Dashboard() {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [latestTick, setLatestTick] = useState<any>(null);
   const [stats, setStats] = useState<{
     totalEmitted: number;
@@ -37,6 +39,16 @@ export default function Dashboard() {
   } | null>(null);
 
   const sseRef = useRef<EventSource | null>(null);
+
+  // Auto-launch guided tour on first visit
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const completed = localStorage.getItem("ratelab_tour_completed");
+      if (!completed) {
+        setIsTourOpen(true);
+      }
+    }
+  }, []);
 
   // Connect to SSE metrics stream
   useEffect(() => {
@@ -216,13 +228,62 @@ export default function Dashboard() {
     }
   };
 
+  // Keyboard Shortcuts for enhanced user flow
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "SELECT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (!isRunning) {
+          handleStart();
+        } else if (isPaused) {
+          handleResume();
+        } else {
+          handlePause();
+        }
+      } else if (e.key === "Escape" || e.key === "h" || e.key === "H") {
+        if (isRunning) {
+          handleStop();
+        }
+      } else if (e.key === "r" || e.key === "R") {
+        handleReset();
+      } else if (e.key === "?") {
+        setIsTourOpen((prev) => !prev);
+      } else if (e.key === "1") {
+        setViewMode("cockpit");
+      } else if (e.key === "2") {
+        setViewMode("comparison");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isRunning, isPaused, targetRps, clientCount, pattern, scenario]);
+
   return (
     <div className="min-h-screen bg-carbon-950 text-carbon-100 studio-grid pb-20">
+      <GuidedTour
+        run={isTourOpen}
+        onFinish={() => setIsTourOpen(false)}
+      />
+
       <Header
         clusterMode={mode}
         currentAlgorithm={algorithm}
         isStreaming={isStreaming}
         onRefreshCluster={handleReset}
+        onStartTour={() => setIsTourOpen(true)}
+        isTourRunning={isTourOpen}
       />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-8">
@@ -254,7 +315,7 @@ export default function Dashboard() {
         </section>
 
         {/* View Mode Switcher */}
-        <div className="flex items-center gap-3 border-b border-white/[0.08] pb-4">
+        <div data-tour="view-mode" className="flex items-center gap-3 border-b border-white/[0.08] pb-4">
           <button
             onClick={() => setViewMode("cockpit")}
             className={`px-4 py-2 font-mono text-xs uppercase tracking-wider transition-all border ${
@@ -273,12 +334,103 @@ export default function Dashboard() {
                 : "border-white/10 text-white/50 hover:text-white hover:border-white/20 bg-carbon-900/40"
             }`}
           >
-            [ 02 ] Comparison Matrix (Commit 7.4)
+            [ 02 ] Comparison Matrix
           </button>
         </div>
 
         {viewMode === "cockpit" ? (
           <>
+            {/* 3-Step User Flow Pipeline Tracker */}
+            <section data-tour="workflow-pipeline">
+              <div className="border border-white/[0.08] bg-carbon-900/60 p-3 sm:p-4 font-mono text-[11px]">
+                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                  {/* Phase 1 */}
+                  <div
+                    className={`flex-1 flex items-center gap-3 p-2.5 border transition ${
+                      !isRunning
+                        ? "border-studio-orange/60 bg-studio-orange/5 text-white"
+                        : "border-white/[0.06] bg-carbon-950/60 text-carbon-400"
+                    }`}
+                  >
+                    <div
+                      className={`h-6 w-6 flex items-center justify-center rounded-sm font-bold text-[10px] ${
+                        !isRunning ? "bg-studio-orange text-carbon-950 font-black" : "bg-carbon-800 text-carbon-400"
+                      }`}
+                    >
+                      01
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[9px] uppercase tracking-wider text-carbon-500">ENGINE & TOPOLOGY</div>
+                      <div className="font-bold truncate text-white">
+                        {algorithm.toUpperCase()} • {mode === "shared" ? "SHARED_REDIS" : "PER_INSTANCE"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="hidden md:block text-carbon-600 font-bold">→</div>
+
+                  {/* Phase 2 */}
+                  <div
+                    className={`flex-1 flex items-center gap-3 p-2.5 border transition ${
+                      scenario !== "custom" || targetRps !== 500
+                        ? "border-studio-orange/60 bg-studio-orange/5 text-white"
+                        : "border-white/[0.06] bg-carbon-950/60 text-carbon-400"
+                    }`}
+                  >
+                    <div
+                      className={`h-6 w-6 flex items-center justify-center rounded-sm font-bold text-[10px] ${
+                        scenario !== "custom" || targetRps !== 500
+                          ? "bg-studio-orange text-carbon-950 font-black"
+                          : "bg-carbon-800 text-carbon-400"
+                      }`}
+                    >
+                      02
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[9px] uppercase tracking-wider text-carbon-500">TRAFFIC SYNTHESIS</div>
+                      <div className="font-bold truncate text-white">
+                        {scenario === "custom" ? `${targetRps} RPS • ${pattern.toUpperCase()}` : scenario.toUpperCase()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="hidden md:block text-carbon-600 font-bold">→</div>
+
+                  {/* Phase 3 */}
+                  <div
+                    className={`flex-1 flex items-center gap-3 p-2.5 border transition ${
+                      isRunning
+                        ? "border-studio-orange/80 bg-studio-orange/10 text-white shadow-sm shadow-studio-orange/20"
+                        : "border-white/[0.06] bg-carbon-950/60 text-carbon-400"
+                    }`}
+                  >
+                    <div
+                      className={`h-6 w-6 flex items-center justify-center rounded-sm font-bold text-[10px] ${
+                        isRunning ? "bg-studio-orange text-carbon-950 font-black" : "bg-carbon-800 text-carbon-400"
+                      }`}
+                    >
+                      03
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[9px] uppercase tracking-wider text-carbon-500">BENCHMARK TELEMETRY</div>
+                      <div className="font-bold truncate flex items-center gap-1.5 text-white">
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            isRunning
+                              ? isPaused
+                                ? "bg-amber-400"
+                                : "bg-studio-orange animate-pulse"
+                              : "bg-carbon-600"
+                          }`}
+                        />
+                        <span>{isRunning ? (isPaused ? "PAUSED" : "ACTIVE 60 FPS") : "READY TO RUN"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             {/* Studio Control Panel */}
             <section>
               <ControlPanel
@@ -309,9 +461,8 @@ export default function Dashboard() {
               />
             </section>
 
-            {/* 60 FPS Telemetry Canvas Timeline (Commit 7.2) & Instance Gauges (Commit 7.3) */}
+            {/* 60 FPS Telemetry Canvas Timeline & Instance Gauges */}
             <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              {/* Live Timeline Component */}
               <div className="lg:col-span-2">
                 <TimelineVisualizer
                   latestTick={latestTick}
@@ -320,7 +471,6 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Instance Gauges (Commit 7.3) */}
               <div>
                 <InstanceGauges
                   distribution={latestTick?.instanceDistribution}
@@ -330,7 +480,7 @@ export default function Dashboard() {
               </div>
             </section>
 
-            {/* Algorithm State Inspector (Commit 7.3) */}
+            {/* Algorithm State Inspector */}
             <section>
               <AlgorithmStateCard
                 algorithm={algorithm}
@@ -346,13 +496,25 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* Minimal Editorial Footer */}
+        {/* Minimal Editorial Footer with Shortcut Cues */}
         <footer className="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono text-[10px] text-carbon-500">
-          <div>
-            THROTL ARCHITECTURE // 5 ALGORITHMS // ATOMIC EVALSHA REDIS LUA // 1,000 REQ/S BENCHMARK
+          <div className="flex flex-wrap items-center gap-3">
+            <span>KEYBOARD SHORTCUTS:</span>
+            <span className="text-carbon-300">[SPACE] RUN/PAUSE</span>
+            <span className="text-carbon-300">[ESC] HALT</span>
+            <span className="text-carbon-300">[R] RESET</span>
+            <span className="text-carbon-300">[?] GUIDED TOUR</span>
+            <span className="text-carbon-300">[1/2] COCKPIT/MATRIX</span>
           </div>
-          <div>
-            INSPIRED BY TWO26 STUDIO [26]
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsTourOpen(true)}
+              className="text-studio-orange hover:underline font-bold"
+            >
+              [ OPEN GUIDED TOUR ]
+            </button>
+            <span>THROTL // TWO26 STUDIO [26]</span>
           </div>
         </footer>
       </main>

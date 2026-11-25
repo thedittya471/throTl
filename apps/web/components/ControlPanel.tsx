@@ -131,6 +131,33 @@ const PRESETS: { id: ScenarioPreset; index: string; name: string; icon: any; det
   { id: "file-uploads", index: "P4", name: "Heavy File Uploads", icon: FileUp, detail: "Paced bandwidth (cost: 5)" },
 ];
 
+const SCENARIO_RECOMMENDATIONS: Record<
+  ScenarioPreset,
+  { algo: AlgorithmType; label: string; reason: string } | null
+> = {
+  custom: null,
+  "login-brute-force": {
+    algo: "leaky-bucket",
+    label: "Leaky Bucket",
+    reason: "Strict pacing prevents dictionary attacks from overloading auth endpoints.",
+  },
+  "search-spike": {
+    algo: "token-bucket",
+    label: "Token Bucket",
+    reason: "Absorbs sudden surges up to burst capacity without unnecessary 429 drops.",
+  },
+  "payment-retries": {
+    algo: "sliding-window-counter",
+    label: "Sliding Counter",
+    reason: "Smooths exponential webhook retries with weighted window interpolation.",
+  },
+  "file-uploads": {
+    algo: "leaky-bucket",
+    label: "Leaky Bucket",
+    reason: "Constant outflow pacing protects upstream storage from saturated bandwidth.",
+  },
+};
+
 export function ControlPanel({
   algorithm,
   onAlgorithmChange,
@@ -156,7 +183,7 @@ export function ControlPanel({
   return (
     <div className="space-y-6">
       {/* SECTION 01: Algorithm Selection Cards */}
-      <div>
+      <div data-tour="algorithm-selection">
         <div className="mb-2.5 flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
           <div className="flex items-center gap-2">
             <span className="text-studio-orange font-bold">[ 01 ]</span>
@@ -219,7 +246,7 @@ export function ControlPanel({
       {/* SECTION 02: Cluster Topology & Traffic Controls */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Coordination Topology */}
-        <div className="studio-card corner-crosshair p-5 flex flex-col justify-between">
+        <div data-tour="cluster-topology" className="studio-card corner-crosshair p-5 flex flex-col justify-between">
           <div>
             <div className="mb-3 flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
               <div className="flex items-center gap-1.5">
@@ -277,7 +304,7 @@ export function ControlPanel({
         </div>
 
         {/* Preset Scenarios */}
-        <div className="studio-card corner-crosshair p-5 flex flex-col justify-between">
+        <div data-tour="preset-scenarios" className="studio-card corner-crosshair p-5 flex flex-col justify-between">
           <div>
             <div className="mb-3 flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
               <div className="flex items-center gap-1.5">
@@ -320,6 +347,30 @@ export function ControlPanel({
                 );
               })}
             </div>
+
+            {/* Smart Scenario Engine Recommendation Assistant */}
+            {scenario !== "custom" && SCENARIO_RECOMMENDATIONS[scenario] && (
+              <div className="mt-3 border border-studio-orange/30 bg-studio-orange/5 p-2.5 font-mono text-[10px] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-studio-orange font-bold uppercase tracking-wider">
+                    RECOMMENDED ENGINE:
+                  </span>
+                  {algorithm === SCENARIO_RECOMMENDATIONS[scenario]!.algo ? (
+                    <span className="text-emerald-400 font-bold">[ACTIVE]</span>
+                  ) : (
+                    <button
+                      onClick={() => onAlgorithmChange(SCENARIO_RECOMMENDATIONS[scenario]!.algo)}
+                      className="bg-studio-orange text-carbon-950 px-2 py-0.5 font-black uppercase tracking-wider hover:bg-studio-orangeHover transition"
+                    >
+                      SWITCH TO {SCENARIO_RECOMMENDATIONS[scenario]!.label.toUpperCase()}
+                    </button>
+                  )}
+                </div>
+                <p className="text-carbon-300 font-sans text-[11px] leading-tight">
+                  {SCENARIO_RECOMMENDATIONS[scenario]!.reason}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-2 font-mono text-[10px] text-carbon-500">
@@ -329,7 +380,7 @@ export function ControlPanel({
         </div>
 
         {/* Traffic Generator Parameters */}
-        <div className="studio-card corner-crosshair p-5 flex flex-col justify-between space-y-4">
+        <div data-tour="traffic-params" className="studio-card corner-crosshair p-5 flex flex-col justify-between space-y-4">
           <div>
             <div className="mb-3 flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
               <div className="flex items-center gap-1.5">
@@ -424,16 +475,19 @@ export function ControlPanel({
       </div>
 
       {/* SECTION 03: Execution Bar & Telemetry */}
-      <div className="studio-card corner-crosshair p-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div data-tour="execution-bar" className="studio-card corner-crosshair p-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
           {!isRunning ? (
             <button
               onClick={onStart}
-              className="btn-studio-primary flex items-center gap-2 px-6 py-2.5 font-mono text-xs uppercase tracking-wider"
+              className="btn-studio-primary flex items-center gap-2 px-6 py-2.5 font-mono text-xs uppercase tracking-wider group"
             >
               <Play className="h-3.5 w-3.5 fill-carbon-950" />
-              RUN SIMULATOR
+              <span>RUN SIMULATOR</span>
+              <kbd className="hidden sm:inline text-[9px] bg-black/20 text-carbon-950 px-1.5 py-0.5 rounded font-mono font-bold">
+                SPACE
+              </kbd>
             </button>
           ) : isPaused ? (
             <button
@@ -441,7 +495,10 @@ export function ControlPanel({
               className="btn-studio-primary flex items-center gap-2 px-6 py-2.5 font-mono text-xs uppercase tracking-wider"
             >
               <Play className="h-3.5 w-3.5 fill-carbon-950" />
-              RESUME
+              <span>RESUME</span>
+              <kbd className="hidden sm:inline text-[9px] bg-black/20 text-carbon-950 px-1.5 py-0.5 rounded font-mono font-bold">
+                SPACE
+              </kbd>
             </button>
           ) : (
             <button
@@ -449,7 +506,10 @@ export function ControlPanel({
               className="flex items-center gap-2 border border-amber-400/50 bg-amber-400/10 px-6 py-2.5 font-mono text-xs font-bold text-amber-300 uppercase tracking-wider hover:bg-amber-400/20"
             >
               <Pause className="h-3.5 w-3.5 fill-amber-300" />
-              PAUSE
+              <span>PAUSE</span>
+              <kbd className="hidden sm:inline text-[9px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">
+                SPACE
+              </kbd>
             </button>
           )}
 
@@ -459,7 +519,10 @@ export function ControlPanel({
             className="flex items-center gap-2 border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 font-mono text-xs font-bold text-rose-300 uppercase tracking-wider hover:bg-rose-500/20 disabled:opacity-30 disabled:pointer-events-none"
           >
             <Square className="h-3.5 w-3.5 fill-rose-300" />
-            HALT
+            <span>HALT</span>
+            <kbd className="hidden sm:inline text-[9px] bg-rose-500/20 text-rose-300 px-1 py-0.5 rounded font-mono">
+              ESC
+            </kbd>
           </button>
 
           <button
@@ -467,7 +530,10 @@ export function ControlPanel({
             className="flex items-center gap-2 border border-white/[0.08] bg-carbon-900 px-4 py-2.5 font-mono text-xs font-semibold text-carbon-300 uppercase tracking-wider hover:border-white/20 hover:text-white"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            RESET CLUSTER
+            <span>RESET CLUSTER</span>
+            <kbd className="hidden sm:inline text-[9px] bg-white/10 text-carbon-400 px-1.5 py-0.5 rounded font-mono">
+              R
+            </kbd>
           </button>
         </div>
 

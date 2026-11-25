@@ -19,7 +19,7 @@ export function AlgorithmStateCard({
   windowSizeMs = 60000,
 }: AlgorithmStateCardProps) {
   return (
-    <div className="studio-card corner-crosshair p-5 space-y-4">
+    <div data-tour="algorithm-inspector" className="studio-card corner-crosshair p-5 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
         <div className="flex items-center gap-1.5">

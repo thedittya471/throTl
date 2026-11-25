@@ -2,13 +2,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Shield, RefreshCw, Radio, Activity } from "lucide-react";
+import { Shield, RefreshCw, Radio, Activity, Compass } from "lucide-react";
 
 interface HeaderProps {
   clusterMode: "per-instance" | "shared";
   currentAlgorithm: string;
   isStreaming: boolean;
   onRefreshCluster?: () => void;
+  onStartTour?: () => void;
+  isTourRunning?: boolean;
 }
 
 export function Header({
@@ -16,6 +18,8 @@ export function Header({
   currentAlgorithm,
   isStreaming,
   onRefreshCluster,
+  onStartTour,
+  isTourRunning = false,
 }: HeaderProps) {
   const [nodesAlive, setNodesAlive] = useState<number>(3);
   const [lastPingMs, setLastPingMs] = useState<number>(1);
@@ -44,7 +48,7 @@ export function Header({
     <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-carbon-950/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
         {/* Brand: throTl */}
-        <div className="flex items-center gap-4">
+        <div data-tour="brand" className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-studio-orange font-mono text-xs font-black text-carbon-950 shadow-md shadow-studio-orange/20">
               T
@@ -98,6 +102,23 @@ export function Header({
               {isStreaming ? `${lastPingMs}ms` : "OFFLINE"}
             </span>
           </div>
+
+          {/* Guided Tour Launcher */}
+          {onStartTour && (
+            <button
+              onClick={onStartTour}
+              title="Interactive Guided Tour (?)"
+              className={`flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[11px] font-bold transition ${
+                isTourRunning
+                  ? "border-studio-orange bg-studio-orange text-carbon-950 shadow-sm shadow-studio-orange/30"
+                  : "border-studio-orange/40 bg-studio-orange/10 text-studio-orange hover:bg-studio-orange/20"
+              }`}
+            >
+              <Compass className={`h-3.5 w-3.5 ${!isTourRunning ? "animate-pulse" : ""}`} />
+              <span className="hidden sm:inline">GUIDED TOUR</span>
+              <span className="sm:hidden">TOUR</span>
+            </button>
+          )}
 
           {onRefreshCluster && (
             <button
