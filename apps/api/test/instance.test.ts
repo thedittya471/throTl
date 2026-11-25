@@ -105,4 +105,38 @@ describe("InstanceServer", () => {
     assert.equal(checkRes.headers.get("x-ratelimit-algorithm"), "token-bucket");
     assert.equal(checkRes.headers.get("x-ratelimit-limit"), "50");
   });
+
+  it("handles redis unavailability gracefully with 503 without crashing or hanging", async () => {
+    const offlineInstance = new InstanceServer({
+      instanceId: "test-offline-instance",
+      port: 4056,
+      mode: "shared",
+      algorithm: "fixed-window",
+      limit: 10,
+      redisUrl: "redis://127.0.0.1:59999",
+    });
+
+    await offlineInstance.start();
+
+    try {
+      const res = await fetch("http://localhost:4056/api/check", {
+        method: "POST",
+        headers: { "x-client-id": "client-offline" },
+      });
+
+      assert.equal(res.status, 503);
+      assert.equal(res.headers.get("x-ratelimit-instance"), "test-offline-instance");
+      assert.equal(res.headers.get("retry-after"), "1");
+
+      const body = await res.json();
+      assert.equal(body.allowed, false);
+      assert.equal(body.error, "Rate limiter backend storage unavailable");
+
+      // Verify server remains online and responsive on /health
+      const health = await fetch("http://localhost:4056/health");
+      assert.equal(health.status, 200);
+    } finally {
+      await offlineInstance.stop();
+    }
+  });
 });

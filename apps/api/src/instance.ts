@@ -180,8 +180,17 @@ export class InstanceServer {
     });
 
     this.app.post("/api/reset", async (_req: Request, res: Response) => {
-      await this.activeLimiter.reset();
-      res.json({ reset: true, instanceId: this.instanceId });
+      try {
+        await this.activeLimiter.reset();
+        res.json({ reset: true, instanceId: this.instanceId });
+      } catch (err: any) {
+        res.status(503).json({
+          reset: false,
+          error: "Failed to reset rate limiter storage",
+          message: err?.message || "Storage error",
+          instanceId: this.instanceId,
+        });
+      }
     });
 
     const handleEvaluation = async (req: Request, res: Response) => {
@@ -206,40 +215,61 @@ export class InstanceServer {
         ? Number(req.body.cost)
         : 1;
 
-      const result = await this.activeLimiter.evaluate({
-        key,
-        timestampMs,
-        cost,
-      });
+      try {
+        const result = await this.activeLimiter.evaluate({
+          key,
+          timestampMs,
+          cost,
+        });
 
-      // Standard Rate-Limit HTTP Headers
-      res.setHeader("X-RateLimit-Limit", String(result.limit));
-      res.setHeader("X-RateLimit-Remaining", String(result.remaining));
-      res.setHeader("X-RateLimit-Reset", String(result.resetTimeMs));
-      res.setHeader("X-RateLimit-Algorithm", this.activeLimiter.name);
-      res.setHeader("X-RateLimit-Instance", this.instanceId);
-      res.setHeader("X-RateLimit-Latency-Ns", String(result.decisionLatencyNs));
+        // Standard Rate-Limit HTTP Headers
+        res.setHeader("X-RateLimit-Limit", String(result.limit));
+        res.setHeader("X-RateLimit-Remaining", String(result.remaining));
+        res.setHeader("X-RateLimit-Reset", String(result.resetTimeMs));
+        res.setHeader("X-RateLimit-Algorithm", this.activeLimiter.name);
+        res.setHeader("X-RateLimit-Instance", this.instanceId);
+        res.setHeader("X-RateLimit-Latency-Ns", String(result.decisionLatencyNs));
 
-      if (!result.allowed) {
-        res.setHeader("Retry-After", String(result.retryAfterSec ?? 1));
-        res.status(429).json({
-          allowed: false,
+        if (!result.allowed) {
+          res.setHeader("Retry-After", String(result.retryAfterSec ?? 1));
+          res.status(429).json({
+            allowed: false,
+            instanceId: this.instanceId,
+            remaining: result.remaining,
+            limit: result.limit,
+            retryAfterSec: result.retryAfterSec ?? 1,
+            internalState: result.internalState,
+          });
+          return;
+        }
+
+        res.status(200).json({
+          allowed: true,
           instanceId: this.instanceId,
           remaining: result.remaining,
           limit: result.limit,
-          retryAfterSec: result.retryAfterSec ?? 1,
           internalState: result.internalState,
         });
-        return;
-      }
+      } catch (err: any) {
+        res.setHeader("X-RateLimit-Limit", String(this.limit));
+        res.setHeader("X-RateLimit-Remaining", "0");
+        res.setHeader("X-RateLimit-Reset", String(Date.now() + 1000));
+        res.setHeader("X-RateLimit-Algorithm", this.activeLimiter?.name || this.algorithm);
+        res.setHeader("X-RateLimit-Instance", this.instanceId);
+        res.setHeader("X-RateLimit-Latency-Ns", "0");
+        res.setHeader("Retry-After", "1");
 
-      res.status(200).json({
-        allowed: true,
-        instanceId: this.instanceId,
-        remaining: result.remaining,
-        limit: result.limit,
-        internalState: result.internalState,
-      });
+        res.status(503).json({
+          allowed: false,
+          error: "Rate limiter backend storage unavailable",
+          message: err?.message || "Storage error",
+          instanceId: this.instanceId,
+          remaining: 0,
+          limit: this.limit,
+          retryAfterSec: 1,
+          internalState: { error: "redis_unavailable" },
+        });
+      }
     };
 
     const limiterRoutes = [

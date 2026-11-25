@@ -12,9 +12,12 @@ export class RedisClientManager {
     const url = config.url || process.env.REDIS_URL || "redis://localhost:6379";
 
     const defaultOptions: RedisOptions = {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2000,
+      commandTimeout: 1000,
       enableReadyCheck: true,
       lazyConnect: false,
+      retryStrategy: (times: number) => Math.min(times * 100, 2000),
       ...config.options,
     };
 
