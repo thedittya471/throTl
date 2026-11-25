@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Shield, RefreshCw, Radio, Terminal } from "lucide-react";
+import { Shield, RefreshCw, Radio, Activity } from "lucide-react";
 
 interface HeaderProps {
   clusterMode: "per-instance" | "shared";
@@ -43,15 +43,15 @@ export function Header({
   return (
     <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-carbon-950/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-        {/* Brand / Title - Two26 Studio Editorial Style */}
+        {/* Brand: throTl */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-studio-orange font-mono text-xs font-black text-carbon-950">
-              R
+            <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-studio-orange font-mono text-xs font-black text-carbon-950 shadow-md shadow-studio-orange/20">
+              T
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="font-mono text-base font-bold tracking-tighter text-white uppercase">
-                RateLab
+                thro<span className="text-studio-orange">Tl</span>
               </span>
               <span className="font-mono text-[10px] font-medium text-studio-orange tracking-widest">
                 [26]

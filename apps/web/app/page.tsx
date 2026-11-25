@@ -10,7 +10,8 @@ import {
   type ScenarioPreset,
   type TrafficPattern,
 } from "../components/ControlPanel";
-import { Activity, Gauge, Terminal, Cpu, ArrowUpRight } from "lucide-react";
+import { TimelineVisualizer } from "../components/TimelineVisualizer";
+import { Gauge } from "lucide-react";
 
 export default function Dashboard() {
   const [algorithm, setAlgorithm] = useState<AlgorithmType>("fixed-window");
@@ -25,6 +26,7 @@ export default function Dashboard() {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [latestTick, setLatestTick] = useState<any>(null);
   const [stats, setStats] = useState<{
     totalEmitted: number;
     currentRps: number;
@@ -48,6 +50,7 @@ export default function Dashboard() {
           try {
             const tick = JSON.parse(event.data);
             if (tick && tick.totalCount !== undefined) {
+              setLatestTick(tick);
               setStats((prev) => ({
                 totalEmitted: (prev?.totalEmitted || 0) + tick.totalCount,
                 currentRps: tick.totalCount * 10,
@@ -55,7 +58,7 @@ export default function Dashboard() {
               }));
             }
           } catch {
-            // Heartbeat comment
+            // Heartbeat comment or non-json
           }
         };
 
@@ -240,8 +243,8 @@ export default function Dashboard() {
                 <span className="font-bold text-white uppercase">{algorithm}</span>
               </div>
               <div className="border border-white/[0.08] bg-carbon-900/60 px-3 py-1.5">
-                <span className="text-carbon-500">TARGET:</span>{" "}
-                <span className="font-bold text-studio-orange">{targetRps} RPS</span>
+                <span className="text-carbon-500">LIMIT:</span>{" "}
+                <span className="font-bold text-studio-orange">{limit} REQ / {windowSizeMs / 1000}S</span>
               </div>
             </div>
           </div>
@@ -277,34 +280,18 @@ export default function Dashboard() {
           />
         </section>
 
-        {/* Telemetry Modular Slots */}
+        {/* 60 FPS Telemetry Canvas Timeline (Commit 7.2) & Instance Gauges Slot */}
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Live Timeline Slot */}
-          <div className="studio-card corner-crosshair p-5 lg:col-span-2 space-y-4">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <span className="text-studio-orange font-bold">[ 05 ]</span>
-                <span className="font-semibold uppercase tracking-wider text-white">
-                  60 FPS Telemetry Canvas
-                </span>
-              </div>
-              <span className="text-carbon-500">100MS TICKS // PREPARED FOR 7.2</span>
-            </div>
-
-            <div className="flex h-56 items-center justify-center border border-dashed border-white/[0.08] bg-carbon-950/60 text-center font-mono">
-              <div className="space-y-1">
-                <Activity className="mx-auto h-6 w-6 text-studio-orange animate-pulse" />
-                <div className="text-xs font-bold text-white uppercase tracking-wider pt-1">
-                  High-Performance Stream Ready
-                </div>
-                <div className="text-[10px] text-carbon-500">
-                  Dual stacked lines: Allowed (emerald) vs Rejected (rose)
-                </div>
-              </div>
-            </div>
+          {/* Live Timeline Component */}
+          <div className="lg:col-span-2">
+            <TimelineVisualizer
+              latestTick={latestTick}
+              limit={limit}
+              isStreaming={isStreaming}
+            />
           </div>
 
-          {/* Instance Gauges Slot */}
+          {/* Instance Gauges Slot (Commit 7.3) */}
           <div className="studio-card corner-crosshair p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-2 font-mono text-[11px]">
               <div className="flex items-center gap-1.5">
@@ -316,7 +303,7 @@ export default function Dashboard() {
               <span className="text-carbon-500">PREPARED FOR 7.3</span>
             </div>
 
-            <div className="flex h-56 items-center justify-center border border-dashed border-white/[0.08] bg-carbon-950/60 text-center font-mono">
+            <div className="flex h-[240px] items-center justify-center border border-dashed border-white/[0.08] bg-carbon-950/60 text-center font-mono">
               <div className="space-y-1">
                 <Gauge className="mx-auto h-6 w-6 text-carbon-400" />
                 <div className="text-xs font-bold text-white uppercase tracking-wider pt-1">
@@ -333,7 +320,7 @@ export default function Dashboard() {
         {/* Minimal Editorial Footer */}
         <footer className="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono text-[10px] text-carbon-500">
           <div>
-            RATELAB ARCHITECTURE // 5 ALGORITHMS // ATOMIC EVALSHA REDIS LUA // 1,000 REQ/S BENCHMARK
+            THROTL ARCHITECTURE // 5 ALGORITHMS // ATOMIC EVALSHA REDIS LUA // 1,000 REQ/S BENCHMARK
           </div>
           <div>
             INSPIRED BY TWO26 STUDIO [26]
